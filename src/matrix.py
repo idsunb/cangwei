@@ -33,6 +33,8 @@ print(C)
 
 
 
+
+
 # # 定义矩阵
 # matrixp1 = np.array([[0.6, 0.4]])
 # matrixp2 = np.array([[0.3, 0.6, 0.1], [0.2, 0.5, 0.3]])
