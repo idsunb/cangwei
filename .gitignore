@@ -1,0 +1,17 @@
+# 忽略库文件
+*.pyc
+__pycache__/
+.DS_Store
+
+# 忽略虚拟环境目录
+.venv/
+env/
+venv/
+
+# 忽略操作系统生成的文件
+Thumbs.db
+.DS_Store
+
+# 忽略 IDE/编辑器生成的文件
+.vscode/
+.idea/
