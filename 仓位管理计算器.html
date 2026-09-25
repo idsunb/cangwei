@@ -1,0 +1,1130 @@
+<!-- AI生成 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>仓位管理计算器 · 投资组合熵理论</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --ink: #1c1b19;
+    --muted: #6b6560;
+    --card: #fffdf8;
+    --line: #e4ddd2;
+    --accent: #0f5c4c;
+    --accent-soft: #e6f2ef;
+    --warn: #8a3b12;
+    --warn-soft: #fbefe6;
+    --good: #0f5c4c;
+    --mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    --sans: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    font-size: 15px;
+  }
+  header {
+    background: var(--ink);
+    color: #f3efe8;
+    padding: 28px 24px 22px;
+  }
+  header h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  header p {
+    margin: 0;
+    color: #b7b0a6;
+    font-size: 13px;
+    max-width: 720px;
+  }
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+  }
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .tab {
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--muted);
+    padding: 8px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .panel {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 20px 24px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.03);
+  }
+  .panel.active { display: block; }
+  h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 0 0 16px;
+  }
+  .formula {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    font-family: var(--mono);
+    font-size: 13px;
+    margin: 0 0 16px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  input, select {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: var(--mono);
+    background: #fff;
+    color: var(--ink);
+  }
+  input:focus, select:focus {
+    outline: 2px solid var(--accent-soft);
+    border-color: var(--accent);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    margin: 8px 0 16px;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .check input { width: auto; }
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--muted);
+    font-family: var(--sans);
+  }
+  .results {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .metric {
+    background: #f3f0e9;
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .metric .k {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .metric .v {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-top: 2px;
+  }
+  .metric .v.warn { color: var(--warn); }
+  .metric .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .note {
+    background: var(--warn-soft);
+    color: var(--warn);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  .bar-wrap {
+    margin-top: 16px;
+    background: #eee9df;
+    border-radius: 8px;
+    height: 28px;
+    overflow: hidden;
+    display: flex;
+  }
+  .bar-cash { background: #c5bfb3; height: 100%; }
+  .bar-pos { background: var(--accent); height: 100%; }
+  .bar-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+    font-family: var(--mono);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 8px;
+  }
+  th, td {
+    border-bottom: 1px solid var(--line);
+    padding: 8px 6px;
+    text-align: left;
+    font-family: var(--mono);
+  }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 16px;
+  }
+  .chip {
+    border: 1px dashed var(--line);
+    background: #fff;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--muted);
+    font-family: var(--sans);
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  canvas {
+    width: 100%;
+    max-width: 640px;
+    height: auto;
+    display: block;
+    margin-top: 12px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  footer {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 16px 40px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .src { font-size: 12px; color: var(--muted); margin-top: 10px; font-family: var(--mono); }
+  .multi-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .multi-row {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr 1fr auto;
+    gap: 8px;
+    align-items: end;
+  }
+  @media (max-width: 640px) {
+    .multi-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<p data-aigc-mark="1" style="margin:0 0 8px;font-size:10px;line-height:1.3;color:#6b6560;font-weight:400;">AI生成</p>
+
+<header>
+  <h1>仓位管理计算器</h1>
+  <p>依据鲁晨光《投资组合的熵理论和信息价值》（中国科学技术大学出版社，1997）中的增值熵与最优下注比例公式实现。目标是最大化几何平均增长（增值熵），而非 Markowitz 的均值–方差。</p>
+</header>
+
+<main>
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="single">单资产定仓位 §3.2</button>
+    <button class="tab" data-tab="lev">透支 / 卖空 §3.3</button>
+    <button class="tab" data-tab="fee">手续费增量 §3.4</button>
+    <button class="tab" data-tab="multi">多资产熵优化 §3.1</button>
+    <button class="tab" data-tab="div">分散投资 §3.5–3.6</button>
+    <button class="tab" data-tab="about">公式说明</button>
+  </div>
+
+  <!-- ========== 单资产 ========== -->
+  <section class="panel active" id="panel-single">
+    <h2>单硬币模型 · 最优投资比例</h2>
+    <p class="sub">输入两种可能的收益率与概率，以及无风险利率，得到最优仓位 q*。</p>
+    <div class="formula">q′ = −(P₁Δ₁ + P₂Δ₂) / (Δ₁Δ₂) · R₀
+Δᵢ = rᵢ − r₀,  R₀ = 1 + r₀
+q* = clamp(q′, 0, 1)   （不透支、不卖空）</div>
+
+    <div class="examples">
+      <button class="chip" data-ex="coin">掷硬币 25%</button>
+      <button class="chip" data-ex="stock">股票/国债 59%</button>
+      <button class="chip" data-ex="future">期货大波动 33%</button>
+      <button class="chip" data-ex="opt">期权 6.7%</button>
+      <button class="chip" data-ex="dice">骰子 33%</button>
+    </div>
+
+    <div class="grid">
+      <div>
+        <label>亏损概率 P₁</label>
+        <input id="s-p1" type="number" value="0.5" step="0.01" min="0" max="1" />
+      </div>
+      <div>
+        <label>盈利概率 P₂（自动=1−P₁，可覆盖）</label>
+        <input id="s-p2" type="number" value="0.5" step="0.01" min="0" max="1" />
+      </div>
+      <div>
+        <label>亏损收益率 r₁</label>
+        <input id="s-r1" type="number" value="-1" step="0.01" />
+      </div>
+      <div>
+        <label>盈利收益率 r₂</label>
+        <input id="s-r2" type="number" value="2" step="0.01" />
+      </div>
+      <div>
+        <label>无风险利率 r₀</label>
+        <input id="s-r0" type="number" value="0" step="0.01" />
+      </div>
+      <div>
+        <label>自有资金（元），可选</label>
+        <input id="s-capital" type="number" value="100000" step="1000" />
+      </div>
+    </div>
+
+    <div class="row">
+      <label class="check"><input type="checkbox" id="s-lev" /> 允许透支（上限 M 倍）</label>
+      <label class="check"><input type="checkbox" id="s-short" /> 允许卖空</label>
+      <div style="min-width:120px">
+        <label>最大倍数 M</label>
+        <input id="s-M" type="number" value="2" step="0.1" min="1" />
+      </div>
+      <button class="primary" id="s-run">计算 q*</button>
+    </div>
+
+    <div class="results" id="s-out">
+      <div class="metric"><div class="k">原始 q′</div><div class="v" id="s-qraw">—</div></div>
+      <div class="metric"><div class="k">最优仓位 q*</div><div class="v" id="s-q">—</div><div class="hint" id="s-qhint"></div></div>
+      <div class="metric"><div class="k">现金比例</div><div class="v" id="s-cash">—</div></div>
+      <div class="metric"><div class="k">几何平均收益</div><div class="v" id="s-rg">—</div></div>
+      <div class="metric"><div class="k">期望收益</div><div class="v" id="s-ra">—</div></div>
+      <div class="metric"><div class="k">增值熵 H</div><div class="v" id="s-H">—</div><div class="hint">比特 / 每期</div></div>
+    </div>
+
+    <div class="bar-wrap" title="仓位结构">
+      <div class="bar-cash" id="s-bar-cash" style="width:50%"></div>
+      <div class="bar-pos" id="s-bar-pos" style="width:50%"></div>
+    </div>
+    <div class="bar-label"><span id="s-bar-cash-l">现金</span><span id="s-bar-pos-l">风险资产</span></div>
+
+    <div class="results" style="margin-top:14px">
+      <div class="metric"><div class="k">投入金额</div><div class="v" id="s-amt">—</div></div>
+      <div class="metric"><div class="k">现金金额</div><div class="v" id="s-amt0">—</div></div>
+    </div>
+
+    <div class="note" id="s-note" style="display:none"></div>
+    <canvas id="s-canvas" width="640" height="280" aria-label="H(q) 曲线"></canvas>
+    <p class="src">§3.2 式 (3.2.3)；亏光概率上限：q* &lt; 1−P₁</p>
+  </section>
+
+  <!-- ========== 透支卖空 ========== -->
+  <section class="panel" id="panel-lev">
+    <h2>允许透支与卖空</h2>
+    <p class="sub">贷款利率 r₀′ 高于存款利率；最大资金倍数 M = 1 + 可透支倍数。§3.3 分段公式。</p>
+    <div class="formula">透支区 q&gt;1:  q″ = −(P₁Δ₁′+P₂Δ₂′)/(Δ₁Δ₂) · R₀′
+正常区:       q′  = −(P₁Δ₁ +P₂Δ₂ )/(Δ₁Δ₂) · R₀
+卖空区 q&lt;0:  用 Δ₋ = r + r₀（及贷款版 r + r₀′）
+q* 按区域截断到 [−M, M]</div>
+
+    <div class="grid">
+      <div><label>P₁（亏损概率）</label><input id="l-p1" type="number" value="0.5" step="0.01" /></div>
+      <div><label>P₂</label><input id="l-p2" type="number" value="0.5" step="0.01" /></div>
+      <div><label>r₁</label><input id="l-r1" type="number" value="-0.3" step="0.01" /></div>
+      <div><label>r₂</label><input id="l-r2" type="number" value="0.8" step="0.01" /></div>
+      <div><label>存款/无风险 r₀</label><input id="l-r0" type="number" value="0.1" step="0.01" /></div>
+      <div><label>贷款利率 r₀′</label><input id="l-rl" type="number" value="0.15" step="0.01" /></div>
+      <div><label>最大倍数 M</label><input id="l-M" type="number" value="2" step="0.1" min="1" /></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="l-run">分段求解 q*</button>
+      <button class="ghost" data-ex2="lev">载入书中图3.2参数</button>
+    </div>
+
+    <div class="results">
+      <div class="metric"><div class="k">区域</div><div class="v" id="l-region" style="font-size:16px">—</div></div>
+      <div class="metric"><div class="k">q*（截断后）</div><div class="v" id="l-q">—</div></div>
+      <div class="metric"><div class="k">q′（正常区）</div><div class="v" id="l-qp">—</div></div>
+      <div class="metric"><div class="k">q″（透支区）</div><div class="v" id="l-qpp">—</div></div>
+      <div class="metric"><div class="k">几何平均收益</div><div class="v" id="l-rg">—</div></div>
+      <div class="metric"><div class="k">增值熵 H</div><div class="v" id="l-H">—</div></div>
+    </div>
+    <div class="note" id="l-note"></div>
+    <p class="src">§3.3；书中例：r₀=0.1, r₀′=0.15, M=2, P=0.5</p>
+  </section>
+
+  <!-- ========== 手续费 ========== -->
+  <section class="panel" id="panel-fee">
+    <h2>考虑手续费的仓位增量</h2>
+    <p class="sub">当前已有仓位 q#，按 (3.4.3) 计算最优调整量 Δq*。手续费率大时会出现「持仓不动」白带。</p>
+    <div class="formula">Δq* = −(P₁ Δ#₁ R#₀₂ + P₂ Δ#₂ R#₀₁) / (Δ#₁ Δ#₂)
+Δ#ₖ = d′Rₖ − R₀,  d′ = 1±d
+R#₀ₖ = q#₀ R₀ + q# Rₖ</div>
+
+    <div class="grid">
+      <div><label>当前仓位 q#</label><input id="f-q" type="number" value="0" step="0.01" min="-1" max="1" /></div>
+      <div><label>P₁</label><input id="f-p1" type="number" value="0.5" step="0.01" /></div>
+      <div><label>P₂</label><input id="f-p2" type="number" value="0.5" step="0.01" /></div>
+      <div><label>r₁</label><input id="f-r1" type="number" value="-1" step="0.01" /></div>
+      <div><label>r₂</label><input id="f-r2" type="number" value="2" step="0.01" /></div>
+      <div><label>r₀</label><input id="f-r0" type="number" value="0" step="0.01" /></div>
+      <div><label>手续费率 d</label><input id="f-d" type="number" value="0.0075" step="0.0005" /></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="f-run">计算 Δq*</button>
+      <button class="ghost" data-ex3="fee">书中深沪 d=0.0075</button>
+    </div>
+
+    <div class="results">
+      <div class="metric"><div class="k">Δq*</div><div class="v" id="f-dq">—</div></div>
+      <div class="metric"><div class="k">新仓位 q_new</div><div class="v" id="f-qn">—</div></div>
+      <div class="metric"><div class="k">是否持仓不动</div><div class="v" id="f-hold" style="font-size:16px">—</div></div>
+      <div class="metric"><div class="k">H 调整前</div><div class="v" id="f-h0">—</div></div>
+      <div class="metric"><div class="k">H 调整后</div><div class="v" id="f-h1">—</div></div>
+      <div class="metric"><div class="k">方向</div><div class="v" id="f-dir" style="font-size:16px">—</div></div>
+    </div>
+    <div class="note" id="f-note"></div>
+    <p class="src">§3.4 式 (3.4.3)；加仓 d′=1−d，减仓 d′=1+d</p>
+  </section>
+
+  <!-- ========== 多资产 ========== -->
+  <section class="panel" id="panel-multi">
+    <h2>多资产最大增值熵优化</h2>
+    <p class="sub">添加情景（行）与资产（列）。每个单元格填该资产在该情景下的收益率；左侧填情景概率。数值搜索使 H = Σ P log(Σ q R) 最大。</p>
+    <div class="formula">max  H = Σᵢ Pᵢ log₂( q₀R₀ + Σₖ qₖ(1+rᵢₖ) )
+s.t. Σ q = 1,  qₖ ≥ 0（或允许卖空）,  q₀ ≥ 0（或允许杠杆）</div>
+
+    <div class="multi-rows" id="m-table"></div>
+    <div class="row">
+      <button class="ghost" id="m-add-asset">＋ 资产</button>
+      <button class="ghost" id="m-add-scen">＋ 情景</button>
+      <label class="check"><input type="checkbox" id="m-short" /> 允许卖空</label>
+      <label class="check"><input type="checkbox" id="m-lev" /> 允许透支</label>
+      <div style="min-width:100px"><label>r₀</label><input id="m-r0" type="number" value="0" step="0.01" /></div>
+      <button class="primary" id="m-run">最大化增值熵</button>
+      <button class="ghost" id="m-reset">重置为书中两硬币例</button>
+    </div>
+
+    <div class="results" id="m-out"></div>
+    <table id="m-result-table"></table>
+    <div class="note" id="m-note"></div>
+    <p class="src">§3.1 最大增值熵原理；对应作者当年「3 种证券 + 现金」优化软件</p>
+  </section>
+
+  <!-- ========== 分散 ========== -->
+  <section class="panel" id="panel-div">
+    <h2>多硬币分散投资</h2>
+    <p class="sub">N 个独立同分布资产、等权配置。N 越大，几何平均收益越接近算术平均（分散投资极限定理）。</p>
+    <div class="formula">H_N = Σ_S C(N,S) P^{N−S} Q^S log(1 + r_port)
+lim_{N→∞} H_N = log(1+E)
+书中硬币 {−1,+2}：N=1→25%, N=2→23%×2, r_g: 6.07%→11.91%→…</div>
+
+    <div class="grid">
+      <div><label>资产数 N</label><input id="d-N" type="number" value="2" min="1" max="64" step="1" /></div>
+      <div><label>单资产亏损收益 r_loss</label><input id="d-rl" type="number" value="-1" step="0.1" /></div>
+      <div><label>单资产盈利收益 r_gain</label><input id="d-rg" type="number" value="2" step="0.1" /></div>
+      <div><label>亏损概率 P</label><input id="d-p" type="number" value="0.5" step="0.05" min="0" max="1" /></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="d-run">优化等权仓位</button>
+      <button class="ghost" id="d-table-run">生成 N=1..8 对照表</button>
+    </div>
+
+    <div class="results">
+      <div class="metric"><div class="k">总仓位 q</div><div class="v" id="d-qt">—</div></div>
+      <div class="metric"><div class="k">每资产 q/N</div><div class="v" id="d-qe">—</div></div>
+      <div class="metric"><div class="k">几何平均收益</div><div class="v" id="d-rgout">—</div></div>
+      <div class="metric"><div class="k">算术平均 E</div><div class="v" id="d-E">—</div></div>
+      <div class="metric"><div class="k">增值熵 H</div><div class="v" id="d-H">—</div></div>
+      <div class="metric"><div class="k">H 与 log₂(1+E)</div><div class="v" id="d-gap">—</div></div>
+    </div>
+    <table id="d-table"></table>
+    <p class="src">§3.5–3.6；极限定理：分散使 r_g → E</p>
+  </section>
+
+  <!-- ========== 说明 ========== -->
+  <section class="panel" id="panel-about">
+    <h2>书中仓位管理公式一览</h2>
+    <p class="sub">详细清单见项目内《仓位管理公式清单.md》。以下为实现对应关系。</p>
+    <table>
+      <thead>
+        <tr><th>章节</th><th>公式</th><th>用途</th><th>本页位置</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>§2.1</td><td>R=1+r, Δ=r−r₀, R_g=∏R^P</td><td>基本度量</td><td>全局</td></tr>
+        <tr><td>§3.1</td><td>H=ΣP log ΣqR → max</td><td>最大增值熵原理</td><td>多资产</td></tr>
+        <tr><td>§3.2</td><td>q′=−(P₁Δ₁+P₂Δ₂)/(Δ₁Δ₂)·R₀</td><td>单资产最优仓位</td><td>单资产</td></tr>
+        <tr><td>§2.3</td><td>q*=E(r)/|r₁r₂|（r₀=0）</td><td>简化式</td><td>单资产</td></tr>
+        <tr><td>§3.3</td><td>透支/卖空分段 q″, q′, q₋</td><td>杠杆与做空</td><td>透支/卖空</td></tr>
+        <tr><td>§3.4</td><td>Δq*=−(P₁Δ#₁R#₀₂+P₂Δ#₂R#₀₁)/(Δ#₁Δ#₂)</td><td>含手续费调仓</td><td>手续费</td></tr>
+        <tr><td>§3.5–3.6</td><td>二项式 H_N；lim H_N=log(1+E)</td><td>分散投资</td><td>分散</td></tr>
+        <tr><td>§3.8</td><td>h=aq²+bq+c, q*=−b/2a</td><td>抛物线近似</td><td>Python</td></tr>
+        <tr><td>§3.7</td><td>消费增值熵 H_C</td><td>基金评价</td><td>Python</td></tr>
+        <tr><td>§5.4.1</td><td>等概率 q*=−(1/r₂+1/r₁)/(2d′)</td><td>期货头寸</td><td>单资产 r₀=0</td></tr>
+        <tr><td>§6.2</td><td>期权简化为单硬币</td><td>期权头寸</td><td>单资产</td></tr>
+      </tbody>
+    </table>
+    <div class="note" style="margin-top:16px">
+      <strong>风险提示：</strong>本工具为书中理论的教学/研究实现，不构成投资建议。真实交易还需考虑滑点、涨跌停、保证金制度、税费与预测误差。
+    </div>
+  </section>
+</main>
+
+<footer>
+  公式来源：鲁晨光《投资组合的熵理论和信息价值——兼析股票期货等风险控制》，中国科学技术大学出版社，1997。
+  本页为独立 HTML，无外部依赖，可离线使用。
+</footer>
+
+<script>
+/* ========== 通用数值工具 ========== */
+const LOG2 = Math.log(2);
+function log2(x) { return Math.log(x) / LOG2; }
+
+function growthEntropy(probs, returns) {
+  let H = 0;
+  for (let i = 0; i < probs.length; i++) {
+    const R = 1 + returns[i];
+    if (R <= 0) return -Infinity;
+    if (probs[i] !== 0) H += probs[i] * log2(R);
+  }
+  return H;
+}
+function geoMean(probs, returns) {
+  let s = 0;
+  for (let i = 0; i < probs.length; i++) {
+    const R = 1 + returns[i];
+    if (R <= 0) return -1;
+    s += probs[i] * Math.log(R);
+  }
+  return Math.exp(s) - 1;
+}
+function expReturn(probs, returns) {
+  let s = 0;
+  for (let i = 0; i < probs.length; i++) s += probs[i] * returns[i];
+  return s;
+}
+function pct(x, d = 2) {
+  if (!isFinite(x)) return x > 0 ? "+∞" : "−∞";
+  return (x * 100).toFixed(d) + "%";
+}
+function fmt(x, d = 4) {
+  if (!isFinite(x)) return String(x);
+  return x.toFixed(d);
+}
+function num(id) { return parseFloat(document.getElementById(id).value); }
+
+/* ========== 单资产 §3.2 ========== */
+const EX = {
+  coin: { p1: 0.5, p2: 0.5, r1: -1, r2: 2, r0: 0, lev: false, short: false, M: 2 },
+  stock: { p1: 0.5, p2: 0.5, r1: -0.3, r2: 0.8, r0: 0.1, lev: false, short: false, M: 2 },
+  future: { p1: 0.5, p2: 0.5, r1: -1, r2: 3, r0: 0, lev: false, short: false, M: 2 },
+  opt: { p1: 0.7, p2: 0.3, r1: -1, r2: 3, r0: 0, lev: false, short: false, M: 2 },
+  dice: { p1: 1/3, p2: 2/3, r1: -1, r2: 1, r0: 0, lev: false, short: false, M: 2 },
+};
+
+function optimalSingle(probs, returns, r0, allowLev, allowShort, M) {
+  const R0 = 1 + r0;
+  const deltas = returns.map(r => r - r0);
+  let P1, P2, D1, D2;
+  if (deltas[0] <= deltas[1]) {
+    P1 = probs[0]; P2 = probs[1]; D1 = deltas[0]; D2 = deltas[1];
+  } else {
+    P1 = probs[1]; P2 = probs[0]; D1 = deltas[1]; D2 = deltas[0];
+  }
+  let qRaw, notes = [];
+  const Eex = probs[0]*deltas[0] + probs[1]*deltas[1];
+  if (D1 >= 0) { qRaw = 1; notes.push("只赢不亏→满仓"); }
+  else if (D2 <= 0) { qRaw = 0; notes.push("只亏不赢→空仓"); }
+  else if (Eex <= 0) { qRaw = 0; notes.push("期望超常收益≤0→空仓"); }
+  else {
+    qRaw = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0;
+    notes.push("闭式解 q′=" + fmt(qRaw, 6));
+  }
+  // 数值兜底：若闭式异常则网格搜索
+  if (!isFinite(qRaw)) {
+    qRaw = gridSearchSingle(probs, returns, r0, allowLev, allowShort, M);
+    notes = ["数值搜索"];
+  }
+  const lo = allowShort ? -M : 0;
+  const hi = allowLev ? M : 1;
+  const q = Math.min(hi, Math.max(lo, qRaw));
+  if (qRaw > hi + 1e-12) notes.push("触及上限 " + hi);
+  if (qRaw < lo - 1e-12) notes.push("触及下限 " + lo);
+  const rs = portReturns(q, returns, r0, r0);
+  const H = growthEntropy(probs, rs);
+  const rg = geoMean(probs, rs);
+  const ra = expReturn(probs, rs);
+  return { qRaw, q, cash: 1 - q, H, rg, ra, notes, rs };
+}
+
+function portReturns(q, returns, r0, rLoan) {
+  const R0 = 1 + r0, RL = 1 + rLoan;
+  return returns.map(r => {
+    if (q > 1) return -(q - 1) * RL + q * (1 + r) - 1;
+    if (q >= 0) return (1 - q) * R0 + q * (1 + r) - 1;
+    if (q >= -1) return (1 + q) * R0 + q * (1 + r) - 1;
+    return -(Math.abs(q) - 1) * RL + q * (1 + r) - 1;
+  });
+}
+
+function gridSearchSingle(probs, returns, r0, allowLev, allowShort, M) {
+  const lo = allowShort ? -M : 0;
+  const hi = allowLev ? M : 1;
+  let best = 0, bestH = -Infinity;
+  for (let i = 0; i <= 1000; i++) {
+    const q = lo + (hi - lo) * i / 1000;
+    const H = growthEntropy(probs, portReturns(q, returns, r0, r0));
+    if (H > bestH) { bestH = H; best = q; }
+  }
+  return best;
+}
+
+function drawHCurve(probs, returns, r0, qStar) {
+  const canvas = document.getElementById("s-canvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const pad = { l: 48, r: 16, t: 20, b: 36 };
+  ctx.clearRect(0, 0, W, H);
+  const qs = [], Hs = [];
+  let hMin = Infinity, hMax = -Infinity;
+  for (let i = 0; i <= 200; i++) {
+    const q = i / 200;
+    const Hq = growthEntropy(probs, portReturns(q, returns, r0, r0));
+    qs.push(q);
+    Hs.push(Hq);
+    if (isFinite(Hq)) { hMin = Math.min(hMin, Hq); hMax = Math.max(hMax, Hq); }
+  }
+  if (!isFinite(hMin)) { hMin = -1; hMax = 1; }
+  if (hMax - hMin < 1e-6) hMax = hMin + 1;
+  const x = q => pad.l + q * (W - pad.l - pad.r);
+  const y = h => pad.t + (1 - (h - hMin) / (hMax - hMin)) * (H - pad.t - pad.b);
+  // axes
+  ctx.strokeStyle = "#e4ddd2"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b);
+  ctx.stroke();
+  ctx.fillStyle = "#6b6560"; ctx.font = "12px sans-serif";
+  ctx.fillText("q=0", pad.l, H - pad.b + 16);
+  ctx.fillText("q=1", W - pad.r - 24, H - pad.b + 16);
+  ctx.fillText("H(q)", 8, pad.t + 10);
+  // curve
+  ctx.strokeStyle = "#0f5c4c"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < qs.length; i++) {
+    if (!isFinite(Hs[i])) { started = false; continue; }
+    if (!started) { ctx.moveTo(x(qs[i]), y(Hs[i])); started = true; }
+    else ctx.lineTo(x(qs[i]), y(Hs[i]));
+  }
+  ctx.stroke();
+  // optimal marker
+  if (isFinite(qStar)) {
+    const hOpt = growthEntropy(probs, portReturns(qStar, returns, r0, r0));
+    if (isFinite(hOpt)) {
+      ctx.fillStyle = "#8a3b12";
+      ctx.beginPath();
+      ctx.arc(x(qStar), y(hOpt), 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillText("q*=" + fmt(qStar, 3), x(qStar) + 8, y(hOpt) - 8);
+    }
+  }
+}
+
+function runSingle() {
+  let p1 = num("s-p1");
+  let p2 = num("s-p2");
+  if (Math.abs(p1 + p2 - 1) > 1e-9 && p1 >= 0 && p1 <= 1) p2 = 1 - p1;
+  const r1 = num("s-r1"), r2 = num("s-r2"), r0 = num("s-r0");
+  const lev = document.getElementById("s-lev").checked;
+  const sh = document.getElementById("s-short").checked;
+  const M = num("s-M") || 2;
+  const capital = num("s-capital") || 0;
+  const res = optimalSingle([p1, p2], [r1, r2], r0, lev, sh, M);
+
+  document.getElementById("s-qraw").textContent = fmt(res.qRaw, 4);
+  document.getElementById("s-q").textContent = pct(res.q);
+  document.getElementById("s-cash").textContent = pct(res.cash);
+  document.getElementById("s-rg").textContent = pct(res.rg);
+  document.getElementById("s-ra").textContent = pct(res.ra);
+  document.getElementById("s-H").textContent = isFinite(res.H) ? fmt(res.H, 4) : "−∞";
+  document.getElementById("s-amt").textContent = (res.q * capital).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  document.getElementById("s-amt0").textContent = (res.cash * capital).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+
+  const qPos = Math.max(0, res.q);
+  const cashW = Math.max(0, 1 - Math.abs(res.q)) * 100;
+  const posW = Math.min(100, Math.abs(res.q) * 100);
+  // simpler bar for 0..1
+  const bw = Math.min(1, Math.max(0, res.q));
+  document.getElementById("s-bar-cash").style.width = ((1 - bw) * 100) + "%";
+  document.getElementById("s-bar-pos").style.width = (bw * 100) + "%";
+  document.getElementById("s-bar-cash-l").textContent = "现金 " + pct(1 - bw);
+  document.getElementById("s-bar-pos-l").textContent = "风险资产 " + pct(bw);
+  document.getElementById("s-qhint").textContent = res.q >= 0.999 ? "满仓" : (res.q <= 0.001 ? "空仓" : (res.q > 1 ? "透支" : (res.q < 0 ? "卖空" : "部分仓位")));
+
+  const note = document.getElementById("s-note");
+  const msgs = res.notes.slice();
+  if (p1 > 0 && Math.abs((r1 - r0) + (1 + r0)) < 1e-9 || r1 <= -1) {
+    // 亏光风险提示
+  }
+  if ((1 + r1) <= 0 || (r1 - r0) <= -(1 + r0) * 0.999) {
+    msgs.push("存在接近/达到 100% 亏损的可能：仓位不应超过 1−P₁ = " + pct(1 - p1, 1));
+  }
+  if (res.q > 1 && !lev) { /* clipped */ }
+  note.style.display = msgs.length ? "block" : "none";
+  note.innerHTML = msgs.join("<br>");
+
+  drawHCurve([p1, p2], [r1, r2], r0, res.q);
+}
+
+document.getElementById("s-run").addEventListener("click", runSingle);
+document.querySelectorAll("[data-ex]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const e = EX[btn.getAttribute("data-ex")];
+    document.getElementById("s-p1").value = e.p1;
+    document.getElementById("s-p2").value = e.p2;
+    document.getElementById("s-r1").value = e.r1;
+    document.getElementById("s-r2").value = e.r2;
+    document.getElementById("s-r0").value = e.r0;
+    document.getElementById("s-lev").checked = e.lev;
+    document.getElementById("s-short").checked = e.short;
+    document.getElementById("s-M").value = e.M;
+    runSingle();
+  });
+});
+
+/* ========== 透支卖空 §3.3 ========== */
+function runLev() {
+  const P1 = num("l-p1"), P2 = num("l-p2");
+  let r1 = num("l-r1"), r2 = num("l-r2");
+  let p1 = P1, p2 = P2;
+  if (Math.abs(p1 + p2 - 1) > 1e-9) p2 = 1 - p1;
+  const r0 = num("l-r0"), rl = num("l-rl"), M = num("l-M") || 2;
+  // order loss/gain by excess vs r0
+  let Rs = [r1, r2], Ps = [p1, p2];
+  if (Rs[0] - r0 > Rs[1] - r0) { Rs = [r2, r1]; Ps = [p2, p1]; }
+  r1 = Rs[0]; r2 = Rs[1];
+  const D1 = r1 - r0, D2 = r2 - r0;
+  const D1p = r1 - rl, D2p = r2 - rl;
+  const Dm1 = r1 + r0, Dm2 = r2 + r0;
+  const Dm1p = r1 + rl, Dm2p = r2 + rl;
+  const R0 = 1 + r0, RP = 1 + rl;
+  const raw = (Da, Db, Rx, Pa, Pb) => -((Pa * Da + Pb * Db) / (Da * Db)) * Rx;
+  const qpp = raw(D1p, D2p, RP, p1, p2);
+  const qp = raw(D1, D2, R0, p1, p2);
+  const qmp = raw(Dm1, Dm2, R0, p1, p2);
+  const qmpp = raw(Dm1p, Dm2p, RP, p1, p2);
+  const E = p1 * r1 + p2 * r2;
+
+  let q, region;
+  if (qpp >= M) { q = M; region = "透支满仓"; }
+  else if (qpp >= 1) { q = qpp; region = "透支区"; }
+  else if (qp >= 0 && qp <= 1 && E > r0) { q = qp; region = "正常多头"; }
+  else if (qp < 0) {
+    if (-r0 <= E && E <= r0) { q = 0; region = "空仓"; }
+    else if (qmp >= -1 && qmp <= 0) { q = qmp; region = "卖空区"; }
+    else if (qmpp < -1 && qmpp > -M) { q = qmpp; region = "深度卖空"; }
+    else if (qmpp <= -M) { q = -M; region = "卖空上限"; }
+    else { q = 0; region = "空仓"; }
+  }
+  else if (qp < 0) { q = 0; region = "空仓"; }
+  else { q = Math.min(1, Math.max(0, qp)); region = "正常多头"; }
+
+  // fallback if region undefined
+  if (region === undefined) {
+    q = Math.min(M, Math.max(-M, qp));
+    region = q > 1 ? "透支" : q < 0 ? "卖空" : "正常";
+  }
+
+  const rs = portReturns(q, [r1, r2], r0, rl);
+  const H = growthEntropy([p1, p2], rs);
+  const rg = geoMean([p1, p2], rs);
+
+  document.getElementById("l-region").textContent = region;
+  document.getElementById("l-q").textContent = fmt(q, 4);
+  document.getElementById("l-qp").textContent = fmt(qp, 4);
+  document.getElementById("l-qpp").textContent = fmt(qpp, 4);
+  document.getElementById("l-rg").textContent = pct(rg);
+  document.getElementById("l-H").textContent = isFinite(H) ? fmt(H, 4) : "−∞";
+  document.getElementById("l-note").innerHTML =
+    `E=${fmt(E,4)}, q_mp(sell)=${fmt(qmp,4)}, q_mpp=${fmt(qmpp,4)}<br>` +
+    `书中分段：透支满仓 / 透支 / 正常 / 空仓 / 卖空 / 深度卖空`;
+}
+document.getElementById("l-run").addEventListener("click", runLev);
+document.querySelector("[data-ex2]").addEventListener("click", () => {
+  document.getElementById("l-p1").value = 0.5;
+  document.getElementById("l-p2").value = 0.5;
+  document.getElementById("l-r1").value = -0.1;
+  document.getElementById("l-r2").value = 0.3;
+  document.getElementById("l-r0").value = 0.1;
+  document.getElementById("l-rl").value = 0.15;
+  document.getElementById("l-M").value = 2;
+  runLev();
+});
+
+/* ========== 手续费 §3.4 ========== */
+function runFee() {
+  const qh = num("f-q");
+  const p1 = num("f-p1");
+  const p2 = Math.abs(num("f-p1") + num("f-p2") - 1) < 1e-9 ? num("f-p2") : 1 - p1;
+  const r1 = num("f-r1"), r2 = num("f-r2"), r0 = num("f-r0"), d = num("f-d");
+  const R0 = 1 + r0;
+  const q0h = 1 - qh;
+
+  function H_of(q) {
+    return growthEntropy([p1, p2], portReturns(q, [r1, r2], r0, r0));
+  }
+  const H0 = H_of(qh);
+  let best = null, bestH = H0;
+  for (const [sign, dp] of [["加仓", 1 - d], ["减仓", 1 + d]]) {
+    const d1 = dp * (1 + r1) - R0;
+    const d2 = dp * (1 + r2) - R0;
+    const R01 = q0h * R0 + qh * (1 + r1);
+    const R02 = q0h * R0 + qh * (1 + r2);
+    if (d1 === 0 || d2 === 0) continue;
+    const dq = -((p1 * d1 * R02 + p2 * d2 * R01) / (d1 * d2));
+    if (sign === "加仓" && dq < 0) continue;
+    if (sign === "减仓" && dq > 0) continue;
+    const qn = Math.min(1, Math.max(-1, qh + dq));
+    const h = H_of(qn);
+    if (h > bestH + 1e-12) {
+      bestH = h;
+      best = { sign, dq, qn, qRaw: qh + dq, d1, d2, R01, R02, dp };
+    }
+  }
+  const hold = !best;
+  const dq = best ? best.dq : 0;
+  const qn = best ? best.qn : qh;
+  document.getElementById("f-dq").textContent = fmt(dq, 4);
+  document.getElementById("f-qn").textContent = pct(qn);
+  document.getElementById("f-hold").textContent = hold ? "是（白带）" : "否";
+  document.getElementById("f-h0").textContent = isFinite(H0) ? fmt(H0, 4) : "−∞";
+  document.getElementById("f-h1").textContent = isFinite(bestH) ? fmt(bestH, 4) : "−∞";
+  document.getElementById("f-dir").textContent = best ? best.sign : "不动";
+  document.getElementById("f-note").innerHTML = hold
+    ? `手续费 d=${d} 下，调整不能提升增值熵 → 持仓不动（书中白带区）。`
+    : `方向 ${best.sign}, d′=${fmt(best.dp,4)}, Δq*=${fmt(dq,4)} → q: ${fmt(qh,4)} → ${fmt(qn,4)}`;
+}
+document.getElementById("f-run").addEventListener("click", runFee);
+document.querySelector("[data-ex3]").addEventListener("click", () => {
+  document.getElementById("f-q").value = 0;
+  document.getElementById("f-d").value = 0.0075;
+  document.getElementById("f-r1").value = -1;
+  document.getElementById("f-r2").value = 2;
+  runFee();
+});
+
+/* ========== 多资产 §3.1 ========== */
+let mState = null;
+function defaultMulti() {
+  // 两独立硬币 4 情景, 资产 A/B
+  return {
+    probs: [0.25, 0.25, 0.25, 0.25],
+    assets: ["A", "B"],
+    grid: [
+      [-1, -1],
+      [-1, 2],
+      [2, -1],
+      [2, 2],
+    ],
+  };
+}
+function renderMulti() {
+  const box = document.getElementById("m-table");
+  const nScen = mState.probs.length;
+  const nA = mState.assets.length;
+  let html = `<div class="multi-row" style="font-size:12px;color:var(--muted)">
+    <div>情景概率 P</div>`;
+  for (let j = 0; j < nA; j++) html += `<div>${mState.assets[j]} 收益率</div>`;
+  html += `<div></div></div>`;
+  for (let i = 0; i < nScen; i++) {
+    html += `<div class="multi-row">`;
+    html += `<div><label>P${i + 1}</label><input data-mp="${i}" value="${mState.probs[i]}" /></div>`;
+    for (let j = 0; j < nA; j++) {
+      html += `<div><label>r${i + 1},${mState.assets[j]}</label><input data-mr="${i},${j}" value="${mState.grid[i][j]}" /></div>`;
+    }
+    html += `<div>${nScen > 1 ? `<button class="ghost" data-mdel="${i}" title="删情景">×</button>` : ""}</div>`;
+    html += `</div>`;
+  }
+  // normalize hint
+  const sum = mState.probs.reduce((a, b) => a + (parseFloat(b) || 0), 0);
+  html += `<div style="font-size:12px;color:var(--muted)">概率和 = ${fmt(sum, 4)}${Math.abs(sum - 1) > 1e-6 ? "（计算时将自动归一化）" : ""}</div>`;
+  box.innerHTML = html;
+  box.querySelectorAll("[data-mp]").forEach(inp => {
+    inp.addEventListener("change", () => {
+      mState.probs[+inp.getAttribute("data-mp")] = parseFloat(inp.value);
+    });
+  });
+  box.querySelectorAll("[data-mr]").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const [i, j] = inp.getAttribute("data-mr").split(",").map(Number);
+      mState.grid[i][j] = parseFloat(inp.value);
+    });
+  });
+  box.querySelectorAll("[data-mdel]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = +btn.getAttribute("data-mdel");
+      mState.probs.splice(i, 1);
+      mState.grid.splice(i, 1);
+      renderMulti();
+    });
+  });
+}
+function readMultiInputs() {
+  // ensure arrays numeric
+  mState.probs = mState.probs.map(x => parseFloat(x));
+  mState.grid = mState.grid.map(row => row.map(x => parseFloat(x)));
+}
+function optimizePortfolio(probs, grid, r0, allowShort, allowLev) {
+  const W = probs.length, N = grid[0].length;
+  let P = probs.slice();
+  const sumP = P.reduce((a, b) => a + b, 0);
+  if (sumP <= 0) throw new Error("概率和必须 > 0");
+  P = P.map(p => p / sumP);
+  const R0 = 1 + r0;
+  const lo = allowShort ? -1 : 0;
+  const hi = allowLev ? 1 : 1; // total assets cap ~1 unless lev
+
+  function H_of(qa) {
+    const qs = qa.reduce((a, b) => a + b, 0);
+    const q0 = 1 - qs;
+    if (q0 < -1e-12 && !allowLev) return -Infinity;
+    if (qa.some(x => x < -1e-12) && !allowShort) return -Infinity;
+    let H = 0;
+    for (let i = 0; i < W; i++) {
+      let portR = q0 * R0;
+      for (let k = 0; k < N; k++) portR += qa[k] * (1 + grid[i][k]);
+      if (portR <= 0) return -Infinity;
+      H += P[i] * log2(portR);
+    }
+    return H;
+  }
+  // random + coordinate ascent
+  let best = new Array(N).fill(0);
+  let bestH = H_of(best);
+  // single asset scan
+  for (let k = 0; k < N; k++) {
+    for (let t = 0; t <= 40; t++) {
+      const qk = lo + (Math.min(1, hi) - lo) * t / 40;
+      const q = new Array(N).fill(0);
+      q[k] = qk;
+      const h = H_of(q);
+      if (h > bestH) { bestH = h; best = q.slice(); }
+    }
+  }
+  let step = 0.1;
+  for (let iter = 0; iter < 120; iter++) {
+    let improved = false;
+    for (let k = 0; k < N; k++) {
+      for (const dir of [step, -step]) {
+        const q = best.slice();
+        q[k] = Math.max(lo, Math.min(hi, q[k] + dir));
+        const qs = q.reduce((a, b) => a + b, 0);
+        if (!allowLev && qs > 1 + 1e-12) continue;
+        const h = H_of(q);
+        if (h > bestH + 1e-12) { bestH = h; best = q; improved = true; }
+      }
+    }
+    if (!improved) { step *= 0.5; if (step < 1e-4) break; }
+  }
+  const q0 = 1 - best.reduce((a, b) => a + b, 0);
+  const weights = [q0, ...best];
+  // returns
+  const portRs = [];
+  for (let i = 0; i < W; i++) {
+    let R = q0 * R0;
+    for (let k = 0; k < N; k++) R += best[k] * (1 + grid[i][k]);
+    portRs.push(R - 1);
+  }
+  const H = growthEntropy(P, portRs);
+  const rg = geoMean(P, portRs);
+  const ra = expReturn(P, portRs);
+  return { weights, H, rg, ra, portRs };
+}
+
+function runMulti() {
+  try {
+    readMultiInputs();
+    const r0 = num("m-r0") || 0;
+    const sh = document.getElementById("m-short").checked;
+    const lev = document.getElementById("m-lev").checked;
+    const res = optimizePortfolio(mState.probs, mState.grid, r0, sh, lev);
+    const out = document.getElementById("m-out");
+    out.innerHTML = `
+      <div class="metric"><div class="k">增值熵 H</div><div class="v">${isFinite(res.H) ? fmt(res.H, 4) : "−∞"}</div></div>
+      <div class="metric"><div class="k">几何平均收益</div><div class="v">${pct(res.rg)}</div></div>
+      <div class="metric"><div class="k">期望收益</div><div class="v">${pct(res.ra)}</div></div>
+      <div class="metric"><div class="k">现金 q₀</div><div class="v">${pct(res.weights[0])}</div></div>`;
+    let th = "<thead><tr><th>资产</th><th>最优权重 q*</th><th>占比</th></tr></thead><tbody>";
+    th += `<tr><td>现金</td><td>${fmt(res.weights[0], 4)}</td><td>${pct(res.weights[0])}</td></tr>`;
+    mState.assets.forEach((name, j) => {
+      th += `<tr><td>${name}</td><td>${fmt(res.weights[j + 1], 4)}</td><td>${pct(res.weights[j + 1])}</td></tr>`;
+    });
+    th += "</tbody>";
+    document.getElementById("m-result-table").innerHTML = th;
+    document.getElementById("m-note").textContent =
+      "各情景组合收益: " + res.portRs.map(x => pct(x, 2)).join(" | ");
+  } catch (e) {
+    document.getElementById("m-note").textContent = "错误: " + e.message;
+  }
+}
+document.getElementById("m-run").addEventListener("click", runMulti);
+document.getElementById("m-add-asset").addEventListener("click", () => {
+  const n = mState.assets.length + 1;
+  mState.assets.push("S" + n);
+  mState.grid = mState.grid.map(row => [...row, 0]);
+  renderMulti();
+});
+document.getElementById("m-add-scen").addEventListener("click", () => {
+  mState.probs.push(1);
+  mState.grid.push(mState.assets.map(() => 0));
+  renderMulti();
+});
+document.getElementById("m-reset").addEventListener("click", () => {
+  mState = defaultMulti();
+  renderMulti();
+});
+
+/* ========== 分散 §3.5 ========== */
+function multiCoinEntropy(N, q, rL, rG, p) {
+  const qw = 1 - p;
+  let H = 0;
+  for (let k = 0; k <= N; k++) { // k = loss count
+    const kw = N - k;
+    // binomial
+    let logC = 0;
+    for (let i = 1; i <= N; i++) logC += Math.log(i);
+    for (let i = 1; i <= k; i++) logC -= Math.log(i);
+    for (let i = 1; i <= kw; i++) logC -= Math.log(i);
+    let prob = Math.exp(logC);
+    if (p > 0 || k === 0) prob *= Math.pow(p, k); else if (k > 0) prob = 0;
+    if (qw > 0 || kw === 0) prob *= Math.pow(qw, kw); else if (kw > 0) prob = 0;
+    const rPort = (q / N) * (k * rL + kw * rG);
+    const R = 1 + rPort;
+    if (R <= 0) return -Infinity;
+    if (prob > 0) H += prob * log2(R);
+  }
+  return H;
+}
+function optimizeMultiCoin(N, rL, rG, p) {
+  let bestQ = 0, bestH = -Infinity;
+  for (let i = 0; i <= 2000; i++) {
+    const q = i / 2000;
+    const H = multiCoinEntropy(N, q, rL, rG, p);
+    if (H > bestH) { bestH = H; bestQ = q; }
+  }
+  // rg
+  const qw = 1 - p;
+  let logRg = 0, ok = true;
+  for (let k = 0; k <= N; k++) {
+    const kw = N - k;
+    let logC = 0;
+    for (let i = 1; i <= N; i++) logC += Math.log(i);
+    for (let i = 1; i <= k; i++) logC -= Math.log(i);
+    for (let i = 1; i <= kw; i++) logC -= Math.log(i);
+    let prob = Math.exp(logC) * Math.pow(p, k) * Math.pow(qw, kw);
+    const rPort = (bestQ / N) * (k * rL + kw * rG);
+    if (1 + rPort <= 0) { ok = false; break; }
+    logRg += prob * Math.log(1 + rPort);
+  }
+  const rg = ok ? Math.exp(logRg) - 1 : -1;
+  return { q: bestQ, each: bestQ / N, H: bestH, rg, E: p * rL + qw * rG };
+}
+function runDiv() {
+  const N = Math.max(1, Math.min(64, num("d-N") || 1));
+  const rL = num("d-rl"), rG = num("d-rg"), p = num("d-p");
+  const r = optimizeMultiCoin(N, rL, rG, p);
+  document.getElementById("d-qt").textContent = pct(r.q);
+  document.getElementById("d-qe").textContent = pct(r.each);
+  document.getElementById("d-rgout").textContent = pct(r.rg);
+  document.getElementById("d-E").textContent = pct(r.E);
+  document.getElementById("d-H").textContent = isFinite(r.H) ? fmt(r.H, 4) : "−∞";
+  document.getElementById("d-gap").textContent =
+    isFinite(r.H) ? fmt(r.H - log2(1 + r.E), 4) : "—";
+}
+function runDivTable() {
+  const rL = num("d-rl"), rG = num("d-rg"), p = num("d-p");
+  let html = `<thead><tr><th>N</th><th>每项 q/N</th><th>总 q</th><th>几何平均 r_g</th><th>算术 E</th></tr></thead><tbody>`;
+  for (let N = 1; N <= 8; N++) {
+    const r = optimizeMultiCoin(N, rL, rG, p);
+    html += `<tr><td>${N}</td><td>${pct(r.each, 2)}</td><td>${pct(r.q, 2)}</td><td>${pct(r.rg, 2)}</td><td>${pct(r.E, 2)}</td></tr>`;
+  }
+  html += "</tbody>";
+  document.getElementById("d-table").innerHTML = html;
+}
+document.getElementById("d-run").addEventListener("click", () => { runDiv(); runDivTable(); });
+document.getElementById("d-table-run").addEventListener("click", runDivTable);
+
+/* ========== Tabs ========== */
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById("panel-" + tab.getAttribute("data-tab")).classList.add("active");
+  });
+});
+
+/* ========== Init ========== */
+mState = defaultMulti();
+renderMulti();
+runSingle();
+runLev();
+runFee();
+runDiv();
+runDivTable();
+</script>
+</body>
+</html>
