@@ -290,6 +290,9 @@
     <button class="tab" data-tab="fee">手续费增量 §3.4</button>
     <button class="tab" data-tab="multi">多资产熵优化 §3.1</button>
     <button class="tab" data-tab="div">分散投资 §3.5–3.6</button>
+    <button class="tab" data-tab="cons">消费熵评价 §3.7</button>
+    <button class="tab" data-tab="approx">抛物线近似 §3.8</button>
+    <button class="tab" data-tab="fut">期货等概率 §5.4.1</button>
     <button class="tab" data-tab="about">公式说明</button>
   </div>
 
@@ -495,6 +498,126 @@ lim_{N→∞} H_N = log(1+E)
     <p class="src">§3.5–3.6；极限定理：分散使 r_g → E</p>
   </section>
 
+  <!-- ========== 消费熵 §3.7 ========== -->
+  <section class="panel" id="panel-cons">
+    <h2>消费增值熵 · 基金评价</h2>
+    <p class="sub">对可能随时撤资消费的投资者，用消费增值熵 Hc 评价更合理：几何平均相同时，波动大的基金更差。§3.7。</p>
+    <div class="formula">Hc = Σ Pᵢ log( 1 + r₀·max(0,1−q) − r_s·min(q,K) + rᵢ·q )
+K = 可能用于消费的资金比例
+r_s = 牺牲消费的等价利率 / 贷款利率</div>
+
+    <div class="examples">
+      <button class="chip" data-ex4="A">书中基金 A（年20%）</button>
+      <button class="chip" data-ex4="B">书中基金 B（−28% / +100%）</button>
+      <button class="chip" data-ex4="C">更激进 C（−52% / +200%）</button>
+    </div>
+
+    <div class="grid">
+      <div><label>P₁（情景1概率）</label><input id="c-p1" type="number" value="1" step="0.05" /></div>
+      <div><label>P₂（情景2概率）</label><input id="c-p2" type="number" value="0" step="0.05" /></div>
+      <div><label>r₁</label><input id="c-r1" type="number" value="0.2" step="0.01" /></div>
+      <div><label>r₂</label><input id="c-r2" type="number" value="0.2" step="0.01" /></div>
+      <div><label>仓位 q</label><input id="c-q" type="number" value="1" step="0.05" min="0" max="1" /></div>
+      <div><label>消费比例 K</label><input id="c-K" type="number" value="0.4" step="0.05" min="0" max="1" /></div>
+      <div><label>牺牲消费利率 r_s</label><input id="c-rs" type="number" value="0.15" step="0.01" /></div>
+      <div><label>现金利率 r₀</label><input id="c-r0" type="number" value="0" step="0.01" /></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="c-run">计算 Hc</button>
+    </div>
+
+    <div class="results">
+      <div class="metric"><div class="k">消费熵 Hc</div><div class="v" id="c-Hc">—</div></div>
+      <div class="metric"><div class="k">普通熵 H（忽略消费）</div><div class="v" id="c-H">—</div></div>
+      <div class="metric"><div class="k">几何平均收益</div><div class="v" id="c-rg">—</div></div>
+      <div class="metric"><div class="k">等价确定收益 2^Hc−1</div><div class="v" id="c-eq">—</div></div>
+    </div>
+    <div class="note" id="c-note"></div>
+    <p class="src">§3.7 消费增值熵；书中例：A 年 20% 优于 B 同几何平均但大波动</p>
+  </section>
+
+  <!-- ========== 抛物线近似 §3.8 ========== -->
+  <section class="panel" id="panel-approx">
+    <h2>近似抛物线法 · 加速求 q*</h2>
+    <p class="sub">单资产多状态时不必细扫 q，只用 q=0, t/2, t 三点拟合抛物线 h(q)=aq²+bq+c，顶点 q*=−b/2a 即近似最优仓位。§3.8。</p>
+    <div class="formula">a = 2[H(t) − 2H(t/2) + H(0)] / t²
+b = [4H(t/2) − H(t) − 3H(0)] / t
+c = H(0)
+q* ≈ clip( −b/(2a), L, U )</div>
+
+    <div class="examples">
+      <button class="chip" data-ex5="book">书中三状态例 q*≈0.46</button>
+      <button class="chip" data-ex5="stock">股票三档收益</button>
+    </div>
+
+    <div class="grid" id="a-scen-grid">
+      <div><label>状态数</label>
+        <select id="a-n">
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </div>
+      <div><label>拟合参数 t</label><input id="a-t" type="number" value="0.5" step="0.05" min="0.05" max="1.5" /></div>
+      <div><label>r₀</label><input id="a-r0" type="number" value="0" step="0.01" /></div>
+      <div><label>下界 L</label><input id="a-L" type="number" value="0" step="0.05" /></div>
+      <div><label>上界 U</label><input id="a-U" type="number" value="1" step="0.05" /></div>
+    </div>
+    <div class="multi-rows" id="a-rows"></div>
+    <div class="row">
+      <button class="primary" id="a-run">近似求解 q*</button>
+      <button class="ghost" id="a-exact">同时精确网格搜索对照</button>
+    </div>
+
+    <div class="results">
+      <div class="metric"><div class="k">近似 q*′</div><div class="v" id="a-q">—</div></div>
+      <div class="metric"><div class="k">精确 q*（网格）</div><div class="v" id="a-qx">—</div></div>
+      <div class="metric"><div class="k">H(近似)</div><div class="v" id="a-h">—</div></div>
+      <div class="metric"><div class="k">H(精确)</div><div class="v" id="a-hx">—</div></div>
+      <div class="metric"><div class="k">参数 a</div><div class="v" id="a-a">—</div></div>
+      <div class="metric"><div class="k">参数 b</div><div class="v" id="a-b">—</div></div>
+    </div>
+    <div class="note" id="a-note"></div>
+    <p class="src">§3.8；书中表3.2：t=0.5 时近似 0.464，精确 0.4609</p>
+  </section>
+
+  <!-- ========== 期货等概率 §5.4.1 ========== -->
+  <section class="panel" id="panel-fut">
+    <h2>期货等概率简化 · 盈亏空间定头寸</h2>
+    <p class="sub">等概率双侧盈亏、不计资金成本时的快速公式，以及书中盈亏 {−2,+3} 随亏损概率的 q*(P₁)。§5.4.1。</p>
+    <div class="formula">等概率:  q* = −(1/r₂ + 1/r₁) / (2 d′),  d′ = 1±d
+盈亏 (−2, +3), R₀=1 时:
+  q*(P₁) = 1                    , P₁=0
+           (3 − 5P₁)/6          , 0&lt;P₁&lt;1
+           −1                   , P₁=1
+极限: P₁→0⁺ q*→1/2,  P₁→1⁻ q*→−1/3</div>
+
+    <div class="grid">
+      <div><label>亏损幅度 r₁</label><input id="u-r1" type="number" value="-1" step="0.1" /></div>
+      <div><label>盈利幅度 r₂</label><input id="u-r2" type="number" value="3" step="0.1" /></div>
+      <div><label>手续费率 d</label><input id="u-d" type="number" value="0" step="0.001" /></div>
+      <div><label>亏损概率 P₁</label><input id="u-p1" type="number" value="0.3" step="0.01" min="0" max="1" /></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="u-run">计算</button>
+      <button class="ghost" data-ex6="small">书中小波动 −10%/+30%</button>
+      <button class="ghost" data-ex6="big">书中大波动 −100%/+300%</button>
+      <button class="ghost" data-ex6="limit">书中 {−2,+3} 极限</button>
+    </div>
+
+    <div class="results">
+      <div class="metric"><div class="k">等概率简化 q*</div><div class="v" id="u-qeq">—</div></div>
+      <div class="metric"><div class="k">闭式 q*（含 P₁）</div><div class="v" id="u-q">—</div></div>
+      <div class="metric"><div class="k">建议上限 1−P₁</div><div class="v" id="u-cap">—</div></div>
+      <div class="metric"><div class="k">多头极限</div><div class="v" id="u-limL">—</div></div>
+      <div class="metric"><div class="k">空头极限</div><div class="v" id="u-limS">—</div></div>
+      <div class="metric"><div class="k">区域</div><div class="v" id="u-region" style="font-size:16px">—</div></div>
+    </div>
+    <div class="note" id="u-note"></div>
+    <p class="src">§5.4.1；亏光上限 q* &lt; 1−P₁；书中 {−1,3} 等概率 → 33%</p>
+  </section>
+
   <!-- ========== 说明 ========== -->
   <section class="panel" id="panel-about">
     <h2>书中仓位管理公式一览</h2>
@@ -511,9 +634,9 @@ lim_{N→∞} H_N = log(1+E)
         <tr><td>§3.3</td><td>透支/卖空分段 q″, q′, q₋</td><td>杠杆与做空</td><td>透支/卖空</td></tr>
         <tr><td>§3.4</td><td>Δq*=−(P₁Δ#₁R#₀₂+P₂Δ#₂R#₀₁)/(Δ#₁Δ#₂)</td><td>含手续费调仓</td><td>手续费</td></tr>
         <tr><td>§3.5–3.6</td><td>二项式 H_N；lim H_N=log(1+E)</td><td>分散投资</td><td>分散</td></tr>
-        <tr><td>§3.8</td><td>h=aq²+bq+c, q*=−b/2a</td><td>抛物线近似</td><td>Python</td></tr>
-        <tr><td>§3.7</td><td>消费增值熵 H_C</td><td>基金评价</td><td>Python</td></tr>
-        <tr><td>§5.4.1</td><td>等概率 q*=−(1/r₂+1/r₁)/(2d′)</td><td>期货头寸</td><td>单资产 r₀=0</td></tr>
+        <tr><td>§3.7</td><td>消费增值熵 Hc</td><td>基金评价</td><td>消费熵评价</td></tr>
+        <tr><td>§3.8</td><td>h=aq²+bq+c, q*=−b/2a</td><td>加速近似求 q*</td><td>抛物线近似</td></tr>
+        <tr><td>§5.4.1</td><td>等概率 q*=−(1/r₂+1/r₁)/(2d′)；q*(P₁)</td><td>期货头寸</td><td>期货等概率</td></tr>
         <tr><td>§6.2</td><td>期权简化为单硬币</td><td>期权头寸</td><td>单资产</td></tr>
       </tbody>
     </table>
@@ -1107,6 +1230,234 @@ function runDivTable() {
 document.getElementById("d-run").addEventListener("click", () => { runDiv(); runDivTable(); });
 document.getElementById("d-table-run").addEventListener("click", runDivTable);
 
+/* ========== 消费熵 §3.7 ========== */
+function consumerEntropy(probs, returns, q, r0, K, rs) {
+  const useConsume = Math.min(Math.max(q, 0), K);
+  const freeCash = Math.max(0, 1 - q);
+  const R = returns.map(r => 1 + r0 * freeCash - rs * useConsume + r * q);
+  if (R.some(x => x <= 0)) return -Infinity;
+  let H = 0;
+  for (let i = 0; i < probs.length; i++) H += probs[i] * log2(R[i]);
+  return H;
+}
+
+function runCons() {
+  let p1 = num("c-p1");
+  let p2 = num("c-p2");
+  if (Math.abs(p1 + p2 - 1) > 1e-9 && p1 >= 0 && p1 <= 1) p2 = 1 - p1;
+  const r1 = num("c-r1"), r2 = num("c-r2");
+  const q = num("c-q"), K = num("c-K"), rs = num("c-rs"), r0 = num("c-r0");
+  const probs = [p1, p2], returns = [r1, r2];
+  const Hc = consumerEntropy(probs, returns, q, r0, K, rs);
+  // 普通熵: 不计消费扣减
+  const H = growthEntropy(probs, portReturns(q, returns, r0, r0));
+  const rg = geoMean(probs, portReturns(q, returns, r0, r0));
+  const eq = isFinite(Hc) ? Math.pow(2, Hc) - 1 : -1;
+  document.getElementById("c-Hc").textContent = isFinite(Hc) ? fmt(Hc, 4) : "−∞";
+  document.getElementById("c-H").textContent = isFinite(H) ? fmt(H, 4) : "−∞";
+  document.getElementById("c-rg").textContent = pct(rg);
+  document.getElementById("c-eq").textContent = pct(eq);
+  document.getElementById("c-note").innerHTML =
+    `占用消费资金 min(q,K)=${fmt(Math.min(q, K), 3)}，扣减 r_s·占用=${fmt(rs * Math.min(q, K), 4)}<br>` +
+    `几何平均相同时，波动越大 Hc 越小 —— 消费型投资人应选更稳的基金。`;
+}
+document.getElementById("c-run").addEventListener("click", runCons);
+document.querySelectorAll("[data-ex4]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const e = btn.getAttribute("data-ex4");
+    const box = {
+      A: { p1: 1, p2: 0, r1: 0.2, r2: 0.2, q: 1 },
+      B: { p1: 0.5, p2: 0.5, r1: -0.28, r2: 1, q: 1 },
+      C: { p1: 0.5, p2: 0.5, r1: -0.52, r2: 2, q: 1 },
+    }[e];
+    document.getElementById("c-p1").value = box.p1;
+    document.getElementById("c-p2").value = box.p2;
+    document.getElementById("c-r1").value = box.r1;
+    document.getElementById("c-r2").value = box.r2;
+    document.getElementById("c-q").value = box.q;
+    document.getElementById("c-K").value = 0.4;
+    document.getElementById("c-rs").value = 0.15;
+    document.getElementById("c-r0").value = 0;
+    runCons();
+  });
+});
+
+/* ========== 抛物线近似 §3.8 ========== */
+function renderApproxRows() {
+  const n = parseInt(document.getElementById("a-n").value, 10) || 3;
+  const box = document.getElementById("a-rows");
+  // preserve existing values if same length
+  const old = aScen.slice();
+  if (old.length !== n) {
+    const defaults = n === 3 ? [[0.25, -1], [0.5, 0.5], [0.25, 2]]
+      : n === 2 ? [[0.5, -0.3], [0.5, 0.8]]
+      : n === 4 ? [[0.125, -1], [0.375, 0], [0.375, 1], [0.125, 2]]
+      : [[0.1, -1], [0.2, -0.2], [0.4, 0.3], [0.2, 1], [0.1, 2]];
+    aScen = defaults.slice(0, n);
+    while (aScen.length < n) aScen.push([1 / n, 0]);
+  }
+  let html = `<div class="multi-row" style="font-size:12px;color:var(--muted)"><div>概率 Pᵢ</div><div>收益率 rᵢ</div><div></div><div></div><div></div></div>`;
+  for (let i = 0; i < aScen.length; i++) {
+    html += `<div class="multi-row">
+      <div><input data-ap="${i}" value="${aScen[i][0]}" /></div>
+      <div><input data-ar="${i}" value="${aScen[i][1]}" /></div>
+      <div></div><div></div><div></div>
+    </div>`;
+  }
+  box.innerHTML = html;
+  box.querySelectorAll("[data-ap]").forEach(inp => {
+    inp.addEventListener("change", () => {
+      aScen[+inp.getAttribute("data-ap")][0] = parseFloat(inp.value);
+    });
+  });
+  box.querySelectorAll("[data-ar]").forEach(inp => {
+    inp.addEventListener("change", () => {
+      aScen[+inp.getAttribute("data-ar")][1] = parseFloat(inp.value);
+    });
+  });
+}
+let aScen = [];
+
+function H_of_q(q, probs, returns, r0) {
+  return growthEntropy(probs, portReturns(q, returns, r0, r0));
+}
+
+function parabolicApprox(probs, returns, r0, t, L, U) {
+  const H0 = H_of_q(0, probs, returns, r0);
+  const Ht2 = H_of_q(t / 2, probs, returns, r0);
+  const Ht = H_of_q(t, probs, returns, r0);
+  const a = 2 * (Ht - 2 * Ht2 + H0) / (t * t);
+  const b = (4 * Ht2 - Ht - 3 * H0) / t;
+  const c = H0;
+  let qRaw = a === 0 ? (b > 0 ? U : L) : -b / (2 * a);
+  const q = Math.min(U, Math.max(L, qRaw));
+  const h = H_of_q(q, probs, returns, r0);
+  // 精确网格
+  let bestQ = L, bestH = -Infinity;
+  for (let i = 0; i <= 1000; i++) {
+    const x = L + (U - L) * i / 1000;
+    const hv = H_of_q(x, probs, returns, r0);
+    if (hv > bestH) { bestH = hv; bestQ = x; }
+  }
+  return { a, b, c, q, qRaw, h, qExact: bestQ, hExact: bestH };
+}
+
+function runApprox() {
+  readApproxInputs();
+  const r0 = num("a-r0") || 0;
+  const t = num("a-t") || 0.5;
+  const L = num("a-L") || 0;
+  const U = num("a-U") || 1;
+  const probs = aScen.map(x => x[0]);
+  const returns = aScen.map(x => x[1]);
+  const sum = probs.reduce((a, b) => a + b, 0) || 1;
+  const P = probs.map(p => p / sum);
+  const res = parabolicApprox(P, returns, r0, t, L, U);
+  document.getElementById("a-q").textContent = fmt(res.q, 4);
+  document.getElementById("a-qx").textContent = fmt(res.qExact, 4);
+  document.getElementById("a-h").textContent = isFinite(res.h) ? fmt(res.h, 4) : "−∞";
+  document.getElementById("a-hx").textContent = isFinite(res.hExact) ? fmt(res.hExact, 4) : "−∞";
+  document.getElementById("a-a").textContent = fmt(res.a, 6);
+  document.getElementById("a-b").textContent = fmt(res.b, 6);
+  const dq = Math.abs(res.q - res.qExact);
+  document.getElementById("a-note").innerHTML =
+    `三点拟合: H(0)=${fmt(H_of_q(0, P, returns, r0), 4)}, H(t/2)=${fmt(H_of_q(t / 2, P, returns, r0), 4)}, H(t)=${fmt(H_of_q(t, P, returns, r0), 4)}<br>` +
+    (dq < 0.02
+      ? `近似与精确相差 ${fmt(dq, 4)}，可直接采用近似 q*（更快）。`
+      : `近似与精确相差 ${fmt(dq, 4)}，若 t 选得不好可换 t 再算，或直接用精确值。`);
+}
+function readApproxInputs() {
+  aScen = aScen.map(row => [parseFloat(row[0]), parseFloat(row[1])]);
+}
+document.getElementById("a-run").addEventListener("click", runApprox);
+document.getElementById("a-exact").addEventListener("click", runApprox);
+document.getElementById("a-n").addEventListener("change", () => { renderApproxRows(); runApprox(); });
+document.querySelectorAll("[data-ex5]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const e = btn.getAttribute("data-ex5");
+    if (e === "book") {
+      aScen = [[0.25, -1], [0.5, 0.5], [0.25, 2]];
+      document.getElementById("a-n").value = "3";
+      document.getElementById("a-t").value = 0.5;
+      document.getElementById("a-r0").value = 0;
+      document.getElementById("a-L").value = 0;
+      document.getElementById("a-U").value = 1;
+    } else {
+      aScen = [[0.3, -0.3], [0.4, 0.15], [0.3, 0.6]];
+      document.getElementById("a-n").value = "3";
+      document.getElementById("a-t").value = 0.7;
+    }
+    renderApproxRows();
+    runApprox();
+  });
+});
+
+/* ========== 期货等概率 §5.4.1 ========== */
+function runFut() {
+  const r1 = num("u-r1"), r2 = num("u-r2"), d = num("u-d") || 0, p1 = num("u-p1");
+  const p2 = 1 - p1;
+  // 等概率简化 (d' = 1+d)
+  const dp = 1 + d;
+  let qEq = NaN;
+  if (r1 !== 0 && r2 !== 0) qEq = -(1 / r2 + 1 / r1) / (2 * dp);
+  // 一般闭式 (r0=0)
+  const D1 = r1, D2 = r2;
+  let q = NaN, region = "—";
+  if (p1 <= 0) { q = 1; region = "满仓（P₁=0）"; }
+  else if (p1 >= 1) { q = -1; region = "满仓卖空（P₁=1）"; }
+  else if (D1 >= 0) { q = 1; region = "只赢→满仓"; }
+  else if (D2 <= 0) { q = 0; region = "只亏→空仓"; }
+  else {
+    const Eex = p1 * D1 + p2 * D2;
+    if (Eex <= 0) { q = 0; region = "期望超常收益≤0→空仓"; }
+    else {
+      q = -((p1 * D1 + p2 * D2) / (D1 * D2));
+      region = q > 1 ? "可满仓/透支" : q < 0 ? "建议卖空" : "部分仓位";
+    }
+  }
+  // 书中 {−2,+3} 特例曲线数值
+  const limL = 0.5, limS = -1 / 3;
+  const cap = 1 - p1;
+  document.getElementById("u-qeq").textContent = isFinite(qEq) ? fmt(qEq, 4) : "—";
+  document.getElementById("u-q").textContent = isFinite(q) ? fmt(q, 4) : "—";
+  document.getElementById("u-cap").textContent = pct(cap);
+  document.getElementById("u-limL").textContent = fmt(limL, 4);
+  document.getElementById("u-limS").textContent = fmt(limS, 4);
+  document.getElementById("u-region").textContent = region;
+  let note = `等概率简化式用于 P=0.5 且忽略 r₀；一般情形用 §3.2 闭式。`;
+  if (r1 === -2 && r2 === 3) {
+    const qPaper = (3 - 5 * p1) / 6;
+    note += `<br>书中特例 {−2,+3}: q*(P₁)=(3−5P₁)/6 = <b>${fmt(qPaper, 4)}</b>（0&lt;P₁&lt;1 时）`;
+  }
+  if (isFinite(q) && q > cap && r1 <= -1) {
+    note += `<br><b>警告：</b>q 超过亏光上限 1−P₁=${pct(cap)}，存在一次亏损即出局的风险。`;
+  }
+  document.getElementById("u-note").innerHTML = note;
+}
+document.getElementById("u-run").addEventListener("click", runFut);
+document.querySelectorAll("[data-ex6]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const e = btn.getAttribute("data-ex6");
+    if (e === "small") {
+      document.getElementById("u-r1").value = -0.1;
+      document.getElementById("u-r2").value = 0.3;
+      document.getElementById("u-d").value = 0;
+      document.getElementById("u-p1").value = 0.5;
+    } else if (e === "big") {
+      document.getElementById("u-r1").value = -1;
+      document.getElementById("u-r2").value = 3;
+      document.getElementById("u-d").value = 0;
+      document.getElementById("u-p1").value = 0.5;
+    } else {
+      document.getElementById("u-r1").value = -2;
+      document.getElementById("u-r2").value = 3;
+      document.getElementById("u-d").value = 0;
+      document.getElementById("u-p1").value = 0.3;
+    }
+    runFut();
+  });
+});
+
 /* ========== Tabs ========== */
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
@@ -1125,6 +1476,11 @@ runLev();
 runFee();
 runDiv();
 runDivTable();
+aScen = [[0.25, -1], [0.5, 0.5], [0.25, 2]];
+renderApproxRows();
+runCons();
+runApprox();
+runFut();
 </script>
 </body>
 </html>
