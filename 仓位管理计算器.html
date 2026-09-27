@@ -446,9 +446,24 @@ R#₀ₖ = q#₀ R₀ + q# Rₖ</div>
   <!-- ========== 多资产 ========== -->
   <section class="panel" id="panel-multi">
     <h2>多资产最大增值熵优化</h2>
-    <p class="sub">添加情景（行）与资产（列）。每个单元格填该资产在该情景下的收益率；左侧填情景概率。数值搜索使 H = Σ P log(Σ q R) 最大。</p>
+    <p class="sub">支持<b>任意不等概率</b>。两种输入方式：① 联合情景表（每行一个可能世界，概率可各不相同）；② 分资产边际分布（如资产 A 有 4 种、B 有 5 种情况，自动展开为最多 4×5 个联合情景）。目标都是 max H = Σ P log(Σ q R)。</p>
     <div class="formula">max  H = Σᵢ Pᵢ log₂( q₀R₀ + Σₖ qₖ(1+rᵢₖ) )
-s.t. Σ q = 1,  qₖ ≥ 0（或允许卖空）,  q₀ ≥ 0（或允许杠杆）</div>
+s.t. Σ q = 1,  qₖ ≥ 0（或允许卖空）,  q₀ ≥ 0（或允许杠杆）
+独立展开: P(i₁,…,iₙ) = Πₖ pₖ(iₖ),  rᵢₖ = rₖ(iₖ)</div>
+
+    <div class="row" style="margin-bottom:8px">
+      <label class="check"><input type="radio" name="m-mode" id="m-mode-joint" checked /> 联合情景表</label>
+      <label class="check"><input type="radio" name="m-mode" id="m-mode-marg" /> 分资产边际分布</label>
+    </div>
+
+    <div id="m-marg-wrap" style="display:none">
+      <p class="sub" style="margin-bottom:8px">每个资产单独维护「概率 → 收益率」列表，条数可以不同（A 4 种、B 5 种均可）。</p>
+      <div class="multi-rows" id="m-marg-table"></div>
+      <div class="row">
+        <button class="ghost" id="m-marg-add-asset">＋ 资产</button>
+        <button class="ghost" id="m-marg-expand">展开为联合情景并求解</button>
+      </div>
+    </div>
 
     <div class="multi-rows" id="m-table"></div>
     <div class="row">
@@ -464,7 +479,7 @@ s.t. Σ q = 1,  qₖ ≥ 0（或允许卖空）,  q₀ ≥ 0（或允许杠杆�
     <div class="results" id="m-out"></div>
     <table id="m-result-table"></table>
     <div class="note" id="m-note"></div>
-    <p class="src">§3.1 最大增值熵原理；对应作者当年「3 种证券 + 现金」优化软件</p>
+    <p class="src">§3.1 最大增值熵原理；联合概率可任意（不必等分）；独立假设下由边际分布自动展开</p>
   </section>
 
   <!-- ========== 分散 ========== -->
@@ -991,8 +1006,10 @@ document.querySelector("[data-ex3]").addEventListener("click", () => {
 
 /* ========== 多资产 §3.1 ========== */
 let mState = null;
+let margState = null;
+
 function defaultMulti() {
-  // 两独立硬币 4 情景, 资产 A/B
+  // 两独立硬币 4 情景, 资产 A/B（等概率只是特例）
   return {
     probs: [0.25, 0.25, 0.25, 0.25],
     assets: ["A", "B"],
@@ -1004,12 +1021,86 @@ function defaultMulti() {
     ],
   };
 }
+
+/** 分资产边际分布: 每资产 [(p, r), ...]，条数可不同 */
+function defaultMarginals() {
+  return {
+    assets: ["A", "B"],
+    dists: [
+      // 资产 A: 4 种情况（书上掷硬币二项展开的示例结构）
+      [
+        { p: 0.1, r: -0.2 },
+        { p: 0.3, r: 0.05 },
+        { p: 0.4, r: 0.15 },
+        { p: 0.2, r: 0.4 },
+      ],
+      // 资产 B: 5 种情况
+      [
+        { p: 0.1, r: -0.5 },
+        { p: 0.2, r: -0.1 },
+        { p: 0.3, r: 0.08 },
+        { p: 0.25, r: 0.2 },
+        { p: 0.15, r: 0.6 },
+      ],
+    ],
+  };
+}
+
+/**
+ * 将各资产边际分布展开为联合情景（独立假设）。
+ * 返回 { probs, grid, assets, note }
+ */
+function expandJointFromMarginals(marg) {
+  const assets = marg.assets.slice();
+  const dists = marg.dists.map(d =>
+    d.map(x => ({ p: parseFloat(x.p), r: parseFloat(x.r) }))
+  );
+  // 校验并归一化各资产边际
+  dists.forEach((d, k) => {
+    const s = d.reduce((a, b) => a + b.p, 0);
+    if (!(s > 0)) throw new Error(`资产 ${assets[k]} 概率和必须 > 0`);
+    if (Math.abs(s - 1) > 1e-6) {
+      d.forEach(x => { x.p = x.p / s; });
+    }
+  });
+  const counts = dists.map(d => d.length);
+  const total = counts.reduce((a, b) => a * b, 1);
+  if (total > 5000) {
+    throw new Error(`联合情景数 ${total} 过大（>5000），请减少资产或状态数`);
+  }
+  // 笛卡尔积: index 用 mixed radix
+  const probs = [];
+  const grid = [];
+  for (let t = 0; t < total; t++) {
+    let rem = t;
+    const idx = [];
+    for (let k = counts.length - 1; k >= 0; k--) {
+      idx[k] = rem % counts[k];
+      rem = Math.floor(rem / counts[k]);
+    }
+    let p = 1;
+    const row = [];
+    for (let k = 0; k < dists.length; k++) {
+      p *= dists[k][idx[k]].p;
+      row.push(dists[k][idx[k]].r);
+    }
+    probs.push(p);
+    grid.push(row);
+  }
+  return {
+    probs,
+    grid,
+    assets,
+    note: `独立展开: ${counts.join("×")} = ${total} 个联合情景`,
+  };
+}
+
 function renderMulti() {
   const box = document.getElementById("m-table");
   const nScen = mState.probs.length;
   const nA = mState.assets.length;
   let html = `<div class="multi-row" style="font-size:12px;color:var(--muted)">
-    <div>情景概率 P</div>`;
+    <div>情景概率 P（可不等）</div>`;
   for (let j = 0; j < nA; j++) html += `<div>${mState.assets[j]} 收益率</div>`;
   html += `<div></div></div>`;
   for (let i = 0; i < nScen; i++) {
@@ -1023,7 +1114,7 @@ function renderMulti() {
   }
   // normalize hint
   const sum = mState.probs.reduce((a, b) => a + (parseFloat(b) || 0), 0);
-  html += `<div style="font-size:12px;color:var(--muted)">概率和 = ${fmt(sum, 4)}${Math.abs(sum - 1) > 1e-6 ? "（计算时将自动归一化）" : ""}</div>`;
+  html += `<div style="font-size:12px;color:var(--muted)">情景数 = ${nScen}，概率和 = ${fmt(sum, 4)}${Math.abs(sum - 1) > 1e-6 ? "（计算时将自动归一化）" : ""}</div>`;
   box.innerHTML = html;
   box.querySelectorAll("[data-mp]").forEach(inp => {
     inp.addEventListener("change", () => {
@@ -1045,11 +1136,77 @@ function renderMulti() {
     });
   });
 }
+
+function renderMarginals() {
+  const box = document.getElementById("m-marg-table");
+  if (!margState) return;
+  let html = "";
+  margState.assets.forEach((name, k) => {
+    const d = margState.dists[k];
+    const sum = d.reduce((a, b) => a + (parseFloat(b.p) || 0), 0);
+    html += `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong>资产 ${name}（${d.length} 种情况，概率和 ${fmt(sum, 4)}）</strong>
+        <span>
+          <button class="ghost" data-madd="${k}">＋ 情况</button>
+          ${margState.assets.length > 1 ? `<button class="ghost" data-mdelasset="${k}">删资产</button>` : ""}
+        </span>
+      </div>`;
+    html += `<div class="multi-row" style="font-size:12px;color:var(--muted)">
+      <div>概率 p</div><div>收益率 r</div><div></div></div>`;
+    d.forEach((row, i) => {
+      html += `<div class="multi-row">
+        <div><input data-mgp="${k},${i}" value="${row.p}" /></div>
+        <div><input data-mgr="${k},${i}" value="${row.r}" /></div>
+        <div>${d.length > 1 ? `<button class="ghost" data-mdelrow="${k},${i}">×</button>` : ""}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  box.innerHTML = html;
+  box.querySelectorAll("[data-mgp]").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const [k, i] = inp.getAttribute("data-mgp").split(",").map(Number);
+      margState.dists[k][i].p = parseFloat(inp.value);
+      renderMarginals();
+    });
+  });
+  box.querySelectorAll("[data-mgr]").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const [k, i] = inp.getAttribute("data-mgr").split(",").map(Number);
+      margState.dists[k][i].r = parseFloat(inp.value);
+    });
+  });
+  box.querySelectorAll("[data-madd]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const k = +btn.getAttribute("data-madd");
+      margState.dists[k].push({ p: 0, r: 0 });
+      renderMarginals();
+    });
+  });
+  box.querySelectorAll("[data-mdelrow]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const [k, i] = btn.getAttribute("data-mdelrow").split(",").map(Number);
+      margState.dists[k].splice(i, 1);
+      renderMarginals();
+    });
+  });
+  box.querySelectorAll("[data-mdelasset]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const k = +btn.getAttribute("data-mdelasset");
+      margState.assets.splice(k, 1);
+      margState.dists.splice(k, 1);
+      renderMarginals();
+    });
+  });
+}
+
 function readMultiInputs() {
   // ensure arrays numeric
   mState.probs = mState.probs.map(x => parseFloat(x));
   mState.grid = mState.grid.map(row => row.map(x => parseFloat(x)));
 }
+
 function optimizePortfolio(probs, grid, r0, allowShort, allowLev) {
   const W = probs.length, N = grid[0].length;
   let P = probs.slice();
@@ -1129,7 +1286,8 @@ function runMulti() {
       <div class="metric"><div class="k">增值熵 H</div><div class="v">${isFinite(res.H) ? fmt(res.H, 4) : "−∞"}</div></div>
       <div class="metric"><div class="k">几何平均收益</div><div class="v">${pct(res.rg)}</div></div>
       <div class="metric"><div class="k">期望收益</div><div class="v">${pct(res.ra)}</div></div>
-      <div class="metric"><div class="k">现金 q₀</div><div class="v">${pct(res.weights[0])}</div></div>`;
+      <div class="metric"><div class="k">现金 q₀</div><div class="v">${pct(res.weights[0])}</div></div>
+      <div class="metric"><div class="k">联合情景数</div><div class="v">${mState.probs.length}</div></div>`;
     let th = "<thead><tr><th>资产</th><th>最优权重 q*</th><th>占比</th></tr></thead><tbody>";
     th += `<tr><td>现金</td><td>${fmt(res.weights[0], 4)}</td><td>${pct(res.weights[0])}</td></tr>`;
     mState.assets.forEach((name, j) => {
@@ -1143,6 +1301,38 @@ function runMulti() {
     document.getElementById("m-note").textContent = "错误: " + e.message;
   }
 }
+
+function expandAndSolve() {
+  try {
+    const joint = expandJointFromMarginals(margState);
+    mState = {
+      probs: joint.probs,
+      assets: joint.assets,
+      grid: joint.grid,
+    };
+    // 切回联合表可见，便于微调
+    document.getElementById("m-mode-joint").checked = true;
+    setMultiMode();
+    renderMulti();
+    runMulti();
+    document.getElementById("m-note").textContent =
+      joint.note + "；已写入联合情景表，可再手动调整相关结构后重算。";
+  } catch (e) {
+    document.getElementById("m-note").textContent = "错误: " + e.message;
+  }
+}
+
+function setMultiMode() {
+  const marg = document.getElementById("m-mode-marg").checked;
+  document.getElementById("m-marg-wrap").style.display = marg ? "block" : "none";
+  document.getElementById("m-table").style.display = marg ? "none" : "block";
+  // 联合操作按钮仅在联合模式下用
+  ["m-add-asset", "m-add-scen", "m-run", "m-reset"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.visibility = marg ? "hidden" : "visible";
+  });
+}
+
 document.getElementById("m-run").addEventListener("click", runMulti);
 document.getElementById("m-add-asset").addEventListener("click", () => {
   const n = mState.assets.length + 1;
@@ -1158,6 +1348,16 @@ document.getElementById("m-add-scen").addEventListener("click", () => {
 document.getElementById("m-reset").addEventListener("click", () => {
   mState = defaultMulti();
   renderMulti();
+  runMulti();
+});
+document.getElementById("m-mode-joint").addEventListener("change", setMultiMode);
+document.getElementById("m-mode-marg").addEventListener("change", setMultiMode);
+document.getElementById("m-marg-expand").addEventListener("click", expandAndSolve);
+document.getElementById("m-marg-add-asset").addEventListener("click", () => {
+  const n = margState.assets.length + 1;
+  margState.assets.push("S" + n);
+  margState.dists.push([{ p: 0.5, r: -0.1 }, { p: 0.5, r: 0.2 }]);
+  renderMarginals();
 });
 
 /* ========== 分散 §3.5 ========== */
@@ -1249,7 +1449,6 @@ function runCons() {
   const q = num("c-q"), K = num("c-K"), rs = num("c-rs"), r0 = num("c-r0");
   const probs = [p1, p2], returns = [r1, r2];
   const Hc = consumerEntropy(probs, returns, q, r0, K, rs);
-  // 普通熵: 不计消费扣减
   const H = growthEntropy(probs, portReturns(q, returns, r0, r0));
   const rg = geoMean(probs, portReturns(q, returns, r0, r0));
   const eq = isFinite(Hc) ? Math.pow(2, Hc) - 1 : -1;
@@ -1286,9 +1485,7 @@ document.querySelectorAll("[data-ex4]").forEach(btn => {
 function renderApproxRows() {
   const n = parseInt(document.getElementById("a-n").value, 10) || 3;
   const box = document.getElementById("a-rows");
-  // preserve existing values if same length
-  const old = aScen.slice();
-  if (old.length !== n) {
+  if (aScen.length !== n) {
     const defaults = n === 3 ? [[0.25, -1], [0.5, 0.5], [0.25, 2]]
       : n === 2 ? [[0.5, -0.3], [0.5, 0.8]]
       : n === 4 ? [[0.125, -1], [0.375, 0], [0.375, 1], [0.125, 2]]
@@ -1332,7 +1529,6 @@ function parabolicApprox(probs, returns, r0, t, L, U) {
   let qRaw = a === 0 ? (b > 0 ? U : L) : -b / (2 * a);
   const q = Math.min(U, Math.max(L, qRaw));
   const h = H_of_q(q, probs, returns, r0);
-  // 精确网格
   let bestQ = L, bestH = -Infinity;
   for (let i = 0; i <= 1000; i++) {
     const x = L + (U - L) * i / 1000;
@@ -1396,11 +1592,9 @@ document.querySelectorAll("[data-ex5]").forEach(btn => {
 function runFut() {
   const r1 = num("u-r1"), r2 = num("u-r2"), d = num("u-d") || 0, p1 = num("u-p1");
   const p2 = 1 - p1;
-  // 等概率简化 (d' = 1+d)
   const dp = 1 + d;
   let qEq = NaN;
   if (r1 !== 0 && r2 !== 0) qEq = -(1 / r2 + 1 / r1) / (2 * dp);
-  // 一般闭式 (r0=0)
   const D1 = r1, D2 = r2;
   let q = NaN, region = "—";
   if (p1 <= 0) { q = 1; region = "满仓（P₁=0）"; }
@@ -1415,7 +1609,6 @@ function runFut() {
       region = q > 1 ? "可满仓/透支" : q < 0 ? "建议卖空" : "部分仓位";
     }
   }
-  // 书中 {−2,+3} 特例曲线数值
   const limL = 0.5, limS = -1 / 3;
   const cap = 1 - p1;
   document.getElementById("u-qeq").textContent = isFinite(qEq) ? fmt(qEq, 4) : "—";
@@ -1470,17 +1663,21 @@ document.querySelectorAll(".tab").forEach(tab => {
 
 /* ========== Init ========== */
 mState = defaultMulti();
+margState = defaultMarginals();
+aScen = [[0.25, -1], [0.5, 0.5], [0.25, 2]];
 renderMulti();
+renderMarginals();
+renderApproxRows();
+setMultiMode();
 runSingle();
 runLev();
 runFee();
 runDiv();
 runDivTable();
-aScen = [[0.25, -1], [0.5, 0.5], [0.25, 2]];
-renderApproxRows();
 runCons();
 runApprox();
 runFut();
+runMulti();
 </script>
 </body>
 </html>

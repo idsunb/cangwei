@@ -47,6 +47,12 @@ JS_VS_PY_CASES = [
     ("dice", [1 / 3, 2 / 3], [-1.0, 1.0], 0.0, 1 / 3),
 ]
 
+# 不等概率边际分布: 资产 A 4 种、B 5 种 (网页「分资产边际分布」模式)
+MARGINAL_4_5 = [
+    [(0.1, -0.2), (0.3, 0.05), (0.4, 0.15), (0.2, 0.4)],       # A: 4 states
+    [(0.1, -0.5), (0.2, -0.1), (0.3, 0.08), (0.25, 0.2), (0.15, 0.6)],  # B: 5 states
+]
+
 
 def check(name: str, ok: bool, detail: str = "") -> bool:
     mark = "✓" if ok else "✗"
@@ -254,6 +260,101 @@ console.log("HcA " + hA.toFixed(6));
                     if not ok:
                         failures += 1
                     check(f"JS {name}≈书中 {expect}", ok, f"got {parsed[name]}")
+
+    # --- 3b. 边际分布展开 (4×5) + 最优仓位 ---
+    print("\n[3b] 分资产边际分布 → 联合情景 (A:4, B:5)")
+    from position_sizing import (
+        expand_joint_from_marginals,
+        optimize_portfolio_entropy,
+    )
+
+    probs_j, grid_j = expand_joint_from_marginals(MARGINAL_4_5)
+    ok = len(probs_j) == 20 and len(grid_j) == 20
+    if not ok:
+        failures += 1
+    check("展开为 4×5=20 个联合情景", ok, f"got {len(probs_j)}")
+    ok = abs(sum(probs_j) - 1.0) < 1e-9
+    if not ok:
+        failures += 1
+    check("联合概率和=1", ok, f"sum={sum(probs_j)}")
+    # 独立性抽查: P(A=1st) ≈ 0.1
+    p_a0 = sum(probs_j[i] for i, row in enumerate(grid_j) if abs(row[0] - MARGINAL_4_5[0][0][1]) < 1e-12)
+    ok = abs(p_a0 - 0.1) < 1e-9
+    if not ok:
+        failures += 1
+    check("边际还原 A 第1档 p=0.1", ok, f"got {p_a0}")
+
+    opt = optimize_portfolio_entropy(probs_j, grid_j, r0=0.0)
+    w = opt["weights"]
+    ok = len(w) == 3  # cash + A + B
+    if not ok:
+        failures += 1
+    check("4×5 情景可求出 3 个权重 (现金+A+B)", ok, f"weights={w}")
+    ok = all(x == x and abs(x) != float("inf") for x in w)
+    if not ok:
+        failures += 1
+    check("权重有限可读", ok, f"weights={w}")
+    # 权重和 = 1
+    ok = abs(sum(w) - 1.0) < 1e-6
+    if not ok:
+        failures += 1
+    check("Σq=1", ok, f"sum={sum(w)}")
+
+    # JS 侧 expandJointFromMarginals 与 Python 对拍
+    m2 = re.search(r"<script>([\s\S]*)</script>", html)
+    js_body2 = m2.group(1) if m2 else ""
+
+    def grab2(fn_name: str) -> str:
+        pat = rf"function {fn_name}\([\s\S]*?\n\}}"
+        mm = re.search(pat, js_body2)
+        return mm.group(0) if mm else ""
+
+    js_expand = (
+        grab2("expandJointFromMarginals")
+        + """
+const marg = {
+  assets: ["A", "B"],
+  dists: [
+    [{p:0.1,r:-0.2},{p:0.3,r:0.05},{p:0.4,r:0.15},{p:0.2,r:0.4}],
+    [{p:0.1,r:-0.5},{p:0.2,r:-0.1},{p:0.3,r:0.08},{p:0.25,r:0.2},{p:0.15,r:0.6}]
+  ]
+};
+const j = expandJointFromMarginals(marg);
+console.log("joint_n " + j.probs.length);
+console.log("joint_sum " + j.probs.reduce((a,b)=>a+b,0).toFixed(10));
+console.log("p0 " + j.probs[0].toFixed(10));
+console.log("r00 " + j.grid[0][0].toFixed(10));
+"""
+    )
+    node2 = subprocess.run(
+        ["node", "-e", js_expand],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if node2.returncode != 0:
+        failures += 1
+        check("JS expandJointFromMarginals", False, node2.stderr[:200])
+    else:
+        parsed = dict(
+            ln.split() for ln in node2.stdout.splitlines() if " " in ln
+        )
+        ok = int(parsed.get("joint_n", 0)) == 20
+        if not ok:
+            failures += 1
+        check("JS 展开 20 情景", ok, parsed.get("joint_n", "?"))
+        ok = abs(float(parsed.get("joint_sum", 0)) - 1.0) < 1e-9
+        if not ok:
+            failures += 1
+        check("JS 联合概率和=1", ok, parsed.get("joint_sum", "?"))
+        ok = abs(float(parsed.get("p0", 0)) - probs_j[0]) < 1e-12
+        if not ok:
+            failures += 1
+        check("JS≡Python 联合 p[0]", ok, f"JS={parsed.get('p0')}, PY={probs_j[0]}")
+        ok = abs(float(parsed.get("r00", 0)) - grid_j[0][0]) < 1e-12
+        if not ok:
+            failures += 1
+        check("JS≡Python r[0,0]", ok, f"JS={parsed.get('r00')}, PY={grid_j[0][0]}")
 
     # --- 4. 公式清单「实现文件」与实际一致 ---
     print("\n[4] 公式清单 ↔ 实现文件")

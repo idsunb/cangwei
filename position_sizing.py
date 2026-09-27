@@ -912,6 +912,63 @@ def optimize_portfolio_entropy(
 
 
 # ---------------------------------------------------------------------------
+# 分资产边际分布 → 联合情景 (独立假设)
+# ---------------------------------------------------------------------------
+
+def expand_joint_from_marginals(
+    marginals: Sequence[Sequence[Tuple[float, float]]],
+) -> Tuple[List[float], List[List[float]]]:
+    """
+    将各资产边际分布展开为联合情景矩阵 (独立假设).
+
+    Parameters
+    ----------
+    marginals:
+        每个元素是该资产的 [(概率, 收益率), ...], 各资产条数可以不同.
+        例如资产 A 4 种、B 5 种.
+
+    Returns
+    -------
+    probs, grid
+        probs[i] 为联合情景概率 Π p_k(i_k)
+        grid[i][k] 为第 k 种资产在该情景的收益率
+    """
+    from itertools import product
+
+    if not marginals:
+        raise ValueError("至少需要一个资产")
+    dists: List[List[Tuple[float, float]]] = []
+    for k, d in enumerate(marginals):
+        pairs = [(float(p), float(r)) for p, r in d]
+        s = sum(p for p, _ in pairs)
+        if s <= 0:
+            raise ValueError(f"资产{k}概率和必须 > 0")
+        if abs(s - 1.0) > 1e-9:
+            pairs = [(p / s, r) for p, r in pairs]
+        dists.append(pairs)
+
+    counts = [len(d) for d in dists]
+    total = 1
+    for c in counts:
+        total *= c
+    if total > 5000:
+        raise ValueError(f"联合情景数 {total} 过大 (>5000)")
+
+    probs: List[float] = []
+    grid: List[List[float]] = []
+    for idx in product(*[range(c) for c in counts]):
+        p = 1.0
+        row: List[float] = []
+        for k, i in enumerate(idx):
+            pk, rk = dists[k][i]
+            p *= pk
+            row.append(rk)
+        probs.append(p)
+        grid.append(row)
+    return probs, grid
+
+
+# ---------------------------------------------------------------------------
 # §3.11 简易风险对比示例: 相同 E,σ 不同最优仓位
 # ---------------------------------------------------------------------------
 
