@@ -235,6 +235,40 @@ console.log("method " + r.method);
             failures += 1
         check("warm M=5 → q≈3.75", ok, f"q={data['warm5']['q']}")
 
+    print("\n[5] 现金/标的/负债 拆分 (JS splitCashDebt)")
+    driver4 = "\n".join(
+        [
+            grab(js, "splitCashDebt"),
+            "const sp = splitCashDebt(-2.75, [3.75]);",
+            "const sp0 = splitCashDebt(0.4, [0.6]);",
+            "console.log(JSON.stringify({sp: sp, sp0: sp0}));",
+        ]
+    )
+    n4 = subprocess.run(
+        ["node", "-e", driver4], capture_output=True, text=True, encoding="utf-8"
+    )
+    if n4.returncode != 0:
+        failures += 1
+        check("splitCashDebt 执行", False, n4.stderr[-200:])
+    else:
+        import json
+
+        d = json.loads(n4.stdout.strip().splitlines()[-1])
+        sp = d["sp"]
+        ok = abs(sp["cash"] - 0) < 1e-12 and abs(sp["debt"] - 2.75) < 1e-12
+        if not ok:
+            failures += 1
+        check("透支拆分 现金0/负债2.75", ok, str(sp))
+        ok = abs(sp["assetSum"] - 3.75) < 1e-12
+        if not ok:
+            failures += 1
+        check("标的合计 3.75", ok, str(sp["assetSum"]))
+        sp0 = d["sp0"]
+        ok = abs(sp0["cash"] - 0.4) < 1e-12 and abs(sp0["debt"] - 0) < 1e-12
+        if not ok:
+            failures += 1
+        check("无透支 debt=0", ok, str(sp0))
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)

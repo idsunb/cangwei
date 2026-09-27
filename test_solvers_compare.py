@@ -214,10 +214,10 @@ def main() -> int:
     if not ok:
         failures += 1
     check("M=5 时 q=3.75（达闭式最优）", ok, f"q={s_M5['asset_weights'][0]:.6f}")
-    ok = s_M5["cash"] < 0
+    ok = s_M5["debt"] > 1.0 and close(s_M5["cash"], 0.0, 1e-9)
     if not ok:
         failures += 1
-    check("透支后现金为负", ok, f"cash={s_M5['cash']:.6f}")
+    check("透支后显示为负债(现金0)", ok, f"cash={s_M5['cash']:.6f}, debt={s_M5['debt']:.6f}")
     # H(3.75) > H(1)
     ok = s_M5["H_bits"] > s_M1["H_bits"] + 1e-3
     if not ok:
@@ -240,6 +240,32 @@ def main() -> int:
     if not ok:
         failures += 1
     check("warm M=5 → q≈3.75", ok, f"q={warm_m5['asset_weights'][0]:.4f}")
+
+    print("\n[6c] 现金/标的/负债 三项拆分 (透支 2.75)")
+    from position_sizing import split_cash_debt
+
+    sp = split_cash_debt(-2.75, [3.75])
+    ok = close(sp["cash"], 0.0) and close(sp["debt"], 2.75) and close(sp["asset_sum"], 3.75)
+    if not ok:
+        failures += 1
+    check("拆分 现金0/负债2.75/标的3.75", ok, str(sp))
+    sp0 = split_cash_debt(0.4, [0.6])
+    ok = close(sp0["cash"], 0.4) and close(sp0["debt"], 0.0)
+    if not ok:
+        failures += 1
+    check("无透支时 debt=0", ok, str(sp0))
+    # SLSQP M=5 结果里 cash/debt 字段
+    s = s_M5
+    ok = close(s.get("debt", -1), 2.75, 1e-4) and close(s.get("cash", -1), 0.0, 1e-9)
+    if not ok:
+        failures += 1
+    check("SLSQP 结果含 cash/debt", ok,
+          f"cash={s.get('cash')}, debt={s.get('debt')}, raw={s.get('cash_raw')}")
+    ok = abs(s["cash"] + s["debt"] + abs(s["cash_raw"])) >= 0  # sanity
+    ok = close(s["cash_raw"], -2.75, 1e-4) and close(s["cash"] + 0 * s["debt"], 0.0, 1e-9)
+    if not ok:
+        failures += 1
+    check("cash_raw 仍为 -2.75 供计算", ok, f"raw={s['cash_raw']}")
 
     print("\n[7] 方法元数据齐全")
     for key, m in [

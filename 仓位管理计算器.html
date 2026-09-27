@@ -352,7 +352,8 @@ q* = clamp(q′, 0, 1)   （不透支、不卖空）</div>
     <div class="results" id="s-out">
       <div class="metric"><div class="k">原始 q′</div><div class="v" id="s-qraw">—</div></div>
       <div class="metric"><div class="k">最优仓位 q*</div><div class="v" id="s-q">—</div><div class="hint" id="s-qhint"></div></div>
-      <div class="metric"><div class="k">现金比例</div><div class="v" id="s-cash">—</div></div>
+      <div class="metric"><div class="k">现金</div><div class="v" id="s-cash">—</div></div>
+      <div class="metric"><div class="k">负债（透支）</div><div class="v warn" id="s-debt">—</div></div>
       <div class="metric"><div class="k">几何平均收益</div><div class="v" id="s-rg">—</div></div>
       <div class="metric"><div class="k">期望收益</div><div class="v" id="s-ra">—</div></div>
       <div class="metric"><div class="k">增值熵 H</div><div class="v" id="s-H">—</div><div class="hint">比特 / 每期</div></div>
@@ -367,6 +368,7 @@ q* = clamp(q′, 0, 1)   （不透支、不卖空）</div>
     <div class="results" style="margin-top:14px">
       <div class="metric"><div class="k">投入金额</div><div class="v" id="s-amt">—</div></div>
       <div class="metric"><div class="k">现金金额</div><div class="v" id="s-amt0">—</div></div>
+      <div class="metric"><div class="k">负债金额</div><div class="v" id="s-amt-debt">—</div></div>
     </div>
 
     <div class="note" id="s-note" style="display:none"></div>
@@ -851,12 +853,15 @@ function runSingle() {
 
   document.getElementById("s-qraw").textContent = fmt(res.qRaw, 4);
   document.getElementById("s-q").textContent = pct(res.q);
-  document.getElementById("s-cash").textContent = pct(res.cash);
+  const sp1 = splitCashDebt(res.cash, [res.q]);
+  document.getElementById("s-cash").textContent = pct(sp1.cash);
+  document.getElementById("s-debt").textContent = pct(sp1.debt);
   document.getElementById("s-rg").textContent = pct(res.rg);
   document.getElementById("s-ra").textContent = pct(res.ra);
   document.getElementById("s-H").textContent = isFinite(res.H) ? fmt(res.H, 4) : "−∞";
   document.getElementById("s-amt").textContent = (res.q * capital).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
-  document.getElementById("s-amt0").textContent = (res.cash * capital).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  document.getElementById("s-amt0").textContent = (sp1.cash * capital).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  document.getElementById("s-amt-debt").textContent = (sp1.debt * capital).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
 
   const qPos = Math.max(0, res.q);
   const cashW = Math.max(0, 1 - Math.abs(res.q)) * 100;
@@ -1442,20 +1447,42 @@ function solveMultiMethod(method, probs, grid, r0, sh, lev, maxMultiple = 1) {
   };
 }
 
+/**
+ * 资金结构拆分: 现金 / 负债 / 标的
+ * q0 = 1 - Σq_k。q0<0 表示透支借款 → 显示为「负债」而非负现金。
+ * 例: 标的 3.75, 负债 2.75, 现金 0（而不是现金 -2.75）
+ */
+function splitCashDebt(cashRaw, assetWeights) {
+  const cash = Math.max(0, cashRaw);
+  const debt = Math.max(0, -cashRaw);
+  const assetSum = (assetWeights || []).reduce((a, b) => a + b, 0);
+  return { cash, debt, assetSum, cashRaw };
+}
+
 function fillMultiResult(res, assets) {
   const rg = res.rg != null ? pct(res.rg) : "—";
   const ra = res.ra != null ? pct(res.ra) : "—";
+  const cashRaw = res.weights[0];
+  const assetWs = res.weights.slice(1);
+  const sp = splitCashDebt(cashRaw, assetWs);
+  const cashLabel = sp.debt > 1e-9 ? "现金（透支后）" : "现金 q₀";
   document.getElementById("m-out").innerHTML = `
     <div class="metric"><div class="k">增值熵 H</div><div class="v">${isFinite(res.H) ? fmt(res.H, 4) : "−∞"}</div></div>
     <div class="metric"><div class="k">几何平均收益</div><div class="v">${rg}</div></div>
     <div class="metric"><div class="k">期望收益</div><div class="v">${ra}</div></div>
-    <div class="metric"><div class="k">现金 q₀</div><div class="v">${pct(res.weights[0])}</div></div>
+    <div class="metric"><div class="k">现金</div><div class="v">${pct(sp.cash)}</div></div>
+    <div class="metric"><div class="k">标的合计</div><div class="v">${pct(sp.assetSum)}</div></div>
+    <div class="metric"><div class="k">负债（透支）</div><div class="v ${sp.debt > 1e-9 ? "warn" : ""}">${pct(sp.debt)}</div></div>
     <div class="metric"><div class="k">方法</div><div class="v" style="font-size:14px">${res.method || "—"}</div></div>`;
-  let th = "<thead><tr><th>资产</th><th>最优权重 q*</th><th>占比</th></tr></thead><tbody>";
-  th += `<tr><td>现金</td><td>${fmt(res.weights[0], 4)}</td><td>${pct(res.weights[0])}</td></tr>`;
+  let th = "<thead><tr><th>项目</th><th>数值 q*</th><th>占比</th></tr></thead><tbody>";
+  th += `<tr><td>现金</td><td>${fmt(sp.cash, 4)}</td><td>${pct(sp.cash)}</td></tr>`;
+  if (sp.debt > 1e-9) {
+    th += `<tr><td>负债（透支借款）</td><td>${fmt(sp.debt, 4)}</td><td>${pct(sp.debt)}</td></tr>`;
+  }
   assets.forEach((name, j) => {
     th += `<tr><td>${name}</td><td>${fmt(res.weights[j + 1], 4)}</td><td>${pct(res.weights[j + 1])}</td></tr>`;
   });
+  th += `<tr><td><b>标的合计</b></td><td><b>${fmt(sp.assetSum, 4)}</b></td><td><b>${pct(sp.assetSum)}</b></td></tr>`;
   th += "</tbody>";
   document.getElementById("m-result-table").innerHTML = th;
 }

@@ -29,6 +29,27 @@ import numpy as np
 # 基本概念 §2.1
 # ---------------------------------------------------------------------------
 
+def split_cash_debt(cash_raw: float, asset_weights: Optional[Sequence[float]] = None) -> dict:
+    """
+    资金结构拆分: 现金 / 负债 / 标的合计.
+
+    约定: q0 = 1 - Σ q_k。当 q0 < 0 表示透支借款, 展示为「负债」而非负现金。
+    例: 标的 3.75 → 现金 0, 负债 2.75 (而不是现金 -2.75)。
+    """
+    cash = max(0.0, float(cash_raw))
+    debt = max(0.0, -float(cash_raw))
+    if asset_weights is None:
+        asset_sum = 1.0 - float(cash_raw)
+    else:
+        asset_sum = float(sum(asset_weights))
+    return {
+        "cash": cash,
+        "debt": debt,
+        "asset_sum": asset_sum,
+        "cash_raw": float(cash_raw),
+    }
+
+
 def excess_return(r: float, r0: float) -> float:
     """超常收益 Δ = r - r0."""
     return r - r0
@@ -900,9 +921,13 @@ def optimize_portfolio_entropy(
     else:
         r_g = -1.0
 
+    cash = max(0.0, q0)
+    debt = max(0.0, -q0)
     return {
         "weights": [q0] + list(map(float, best_q)),
-        "cash": q0,
+        "cash": cash,
+        "debt": debt,
+        "cash_raw": q0,
         "asset_weights": list(map(float, best_q)),
         "H_bits": H,
         "geometric_return": r_g,
@@ -1080,9 +1105,13 @@ def solve_max_entropy_slsqp(
         q = _project_box_sum(q, lo, hi, sum_max)
     q0_cash = 1.0 - float(q.sum())
     met = _portfolio_metrics(P, Delta, R0, q)
+    cash = max(0.0, q0_cash)
+    debt = max(0.0, -q0_cash)
     return {
         "weights": [q0_cash] + list(map(float, q)),
-        "cash": q0_cash,
+        "cash": cash,
+        "debt": debt,
+        "cash_raw": q0_cash,
         "asset_weights": list(map(float, q)),
         "H_bits": met["H_bits"],
         "geometric_return": met["geometric_return"],
