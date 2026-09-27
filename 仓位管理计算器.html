@@ -472,14 +472,27 @@ s.t. Σ q = 1,  qₖ ≥ 0（或允许卖空）,  q₀ ≥ 0（或允许杠杆�
       <label class="check"><input type="checkbox" id="m-short" /> 允许卖空</label>
       <label class="check"><input type="checkbox" id="m-lev" /> 允许透支</label>
       <div style="min-width:100px"><label>r₀</label><input id="m-r0" type="number" value="0" step="0.01" /></div>
+      <div style="min-width:170px">
+        <label>求解方法</label>
+        <select id="m-method">
+          <option value="hill">坐标爬山</option>
+          <option value="grad">解析梯度精修</option>
+          <option value="warm">§3.8 近似初值+梯度</option>
+        </select>
+      </div>
       <button class="primary" id="m-run">最大化增值熵</button>
+      <button class="ghost" id="m-compare">三方法对比</button>
       <button class="ghost" id="m-reset">重置为书中两硬币例</button>
     </div>
 
     <div class="results" id="m-out"></div>
     <table id="m-result-table"></table>
+    <div id="m-compare-wrap" style="display:none">
+      <h2 style="font-size:15px;margin:16px 0 6px">求解方法对比</h2>
+      <table id="m-compare-table"></table>
+    </div>
     <div class="note" id="m-note"></div>
-    <p class="src">§3.1 最大增值熵原理；联合概率可任意（不必等分）；独立假设下由边际分布自动展开</p>
+    <p class="src">§3.1 最大增值熵原理；网页：爬山 / 解析梯度 / 近似初值；Python SLSQP 版见 position_sizing.py</p>
   </section>
 
   <!-- ========== 分散 ========== -->
@@ -1274,29 +1287,227 @@ function optimizePortfolio(probs, grid, r0, allowShort, allowLev) {
   return { weights, H, rg, ra, portRs };
 }
 
+/** 解析梯度精修: max H = Σ P log2(R0 + Δq), Δ=R-R0 */
+function gradRefine(probs, grid, r0, x0, allowShort, allowLev) {
+  const W = probs.length, N = grid[0].length;
+  let P = probs.slice();
+  const s = P.reduce((a, b) => a + b, 0) || 1;
+  P = P.map(p => p / s);
+  const R0 = 1 + r0;
+  const Delta = grid.map(row => row.map(r => (1 + r) - R0)); // W×N
+  const lo = allowShort ? -1 : 0;
+  const hi = 1;
+  const sumMax = allowLev ? 1 : 1; // 简化: 不透支时 Σq≤1; 透支由 cash 负值体现时与 Python 一致可扩展
+
+  function project(q) {
+    q = q.map(x => Math.max(lo, Math.min(hi, x)));
+    const qs = q.reduce((a, b) => a + b, 0);
+    if (!allowLev && qs > sumMax && qs > 0) {
+      const k = sumMax / qs;
+      q = q.map(x => x * k).map(x => Math.max(lo, Math.min(hi, x)));
+    }
+    return q;
+  }
+  function portR(q) {
+    const qs = q.reduce((a, b) => a + b, 0);
+    const q0 = 1 - qs;
+    const out = [];
+    for (let i = 0; i < W; i++) {
+      let R = q0 * R0;
+      for (let k = 0; k < N; k++) R += q[k] * (1 + grid[i][k]);
+      out.push(R);
+    }
+    return out;
+  }
+  function H(q) {
+    const R = portR(q);
+    if (R.some(x => x <= 0)) return -Infinity;
+    let h = 0;
+    for (let i = 0; i < W; i++) h += P[i] * log2(R[i]);
+    return h;
+  }
+  function grad(q) {
+    const R = portR(q);
+    const g = new Array(N).fill(0);
+    for (let k = 0; k < N; k++) {
+      let s = 0;
+      for (let i = 0; i < W; i++) {
+        if (R[i] <= 0) return null;
+        s += (P[i] * Delta[i][k]) / (R[i] * Math.LN2); // dH/dq_k
+      }
+      g[k] = s;
+    }
+    return g;
+  }
+
+  let q = project((x0 || new Array(N).fill(0)).slice());
+  let best = q.slice(), bestH = H(q);
+  let step = 0.15;
+  for (let it = 0; it < 400; it++) {
+    const g = grad(q);
+    if (!g) break;
+    let improved = false;
+    for (const scale of [step, step * 0.5, step * 0.25]) {
+      const cand = project(q.map((x, k) => x + scale * g[k]));
+      const h = H(cand);
+      if (h > bestH + 1e-14) {
+        q = cand;
+        best = cand.slice();
+        bestH = h;
+        improved = true;
+        break;
+      }
+    }
+    if (!improved) {
+      step *= 0.5;
+      if (step < 1e-5) break;
+    }
+  }
+  return { weights: best, H: bestH, iterations: it };
+}
+
+/** §3.8 单资产抛物线 → 多资产初值 */
+function approxWarmstart(probs, grid, r0, t) {
+  const N = grid[0].length;
+  const q = new Array(N).fill(0);
+  for (let k = 0; k < N; k++) {
+    const one = (x) => {
+      const qa = new Array(N).fill(0);
+      qa[k] = x;
+      // 其它资产 0，现金 1-x
+      const W = probs.length;
+      let P = probs.slice();
+      const s = P.reduce((a, b) => a + b, 0) || 1;
+      P = P.map(p => p / s);
+      const R0 = 1 + r0;
+      let H = 0, ok = true;
+      for (let i = 0; i < W; i++) {
+        const R = (1 - x) * R0 + x * (1 + grid[i][k]);
+        if (R <= 0) { ok = false; break; }
+        H += P[i] * log2(R);
+      }
+      return ok ? H : -Infinity;
+    };
+    const H0 = one(0), Ht2 = one(t / 2), Ht = one(t);
+    if (!(isFinite(H0) && isFinite(Ht2) && isFinite(Ht))) {
+      q[k] = 0;
+      continue;
+    }
+    const a = 2 * (Ht - 2 * Ht2 + H0) / (t * t);
+    const b = (4 * Ht2 - Ht - 3 * H0) / t;
+    let x = a === 0 ? 0 : -b / (2 * a);
+    q[k] = Math.max(0, Math.min(1, x));
+  }
+  const qs = q.reduce((a, b) => a + b, 0);
+  if (qs > 1 && qs > 0) {
+    for (let k = 0; k < N; k++) q[k] /= qs;
+  }
+  return q;
+}
+
+function solveMultiMethod(method, probs, grid, r0, sh, lev) {
+  if (method === "hill") {
+    const r = optimizePortfolio(probs, grid, r0, sh, lev);
+    return { ...r, method: "坐标爬山", nit: "—" };
+  }
+  if (method === "grad") {
+    const r = gradRefine(probs, grid, r0, new Array(grid[0].length).fill(0), sh, lev);
+    const q = r.weights, q0 = 1 - q.reduce((a, b) => a + b, 0);
+    return {
+      weights: [q0, ...q], H: r.H, rg: null, ra: null, portRs: [],
+      method: "解析梯度精修", nit: r.iterations,
+    };
+  }
+  // warm
+  const x0 = approxWarmstart(probs, grid, r0, 0.5);
+  const r = gradRefine(probs, grid, r0, x0, sh, lev);
+  const q = r.weights, q0 = 1 - q.reduce((a, b) => a + b, 0);
+  return {
+    weights: [q0, ...q], H: r.H, rg: null, ra: null, portRs: [],
+    method: "§3.8初值+梯度", nit: r.iterations, warmstart: x0,
+  };
+}
+
+function fillMultiResult(res, assets) {
+  const rg = res.rg != null ? pct(res.rg) : "—";
+  const ra = res.ra != null ? pct(res.ra) : "—";
+  document.getElementById("m-out").innerHTML = `
+    <div class="metric"><div class="k">增值熵 H</div><div class="v">${isFinite(res.H) ? fmt(res.H, 4) : "−∞"}</div></div>
+    <div class="metric"><div class="k">几何平均收益</div><div class="v">${rg}</div></div>
+    <div class="metric"><div class="k">期望收益</div><div class="v">${ra}</div></div>
+    <div class="metric"><div class="k">现金 q₀</div><div class="v">${pct(res.weights[0])}</div></div>
+    <div class="metric"><div class="k">方法</div><div class="v" style="font-size:14px">${res.method || "—"}</div></div>`;
+  let th = "<thead><tr><th>资产</th><th>最优权重 q*</th><th>占比</th></tr></thead><tbody>";
+  th += `<tr><td>现金</td><td>${fmt(res.weights[0], 4)}</td><td>${pct(res.weights[0])}</td></tr>`;
+  assets.forEach((name, j) => {
+    th += `<tr><td>${name}</td><td>${fmt(res.weights[j + 1], 4)}</td><td>${pct(res.weights[j + 1])}</td></tr>`;
+  });
+  th += "</tbody>";
+  document.getElementById("m-result-table").innerHTML = th;
+}
+
 function runMulti() {
   try {
     readMultiInputs();
     const r0 = num("m-r0") || 0;
     const sh = document.getElementById("m-short").checked;
     const lev = document.getElementById("m-lev").checked;
-    const res = optimizePortfolio(mState.probs, mState.grid, r0, sh, lev);
-    const out = document.getElementById("m-out");
-    out.innerHTML = `
-      <div class="metric"><div class="k">增值熵 H</div><div class="v">${isFinite(res.H) ? fmt(res.H, 4) : "−∞"}</div></div>
-      <div class="metric"><div class="k">几何平均收益</div><div class="v">${pct(res.rg)}</div></div>
-      <div class="metric"><div class="k">期望收益</div><div class="v">${pct(res.ra)}</div></div>
-      <div class="metric"><div class="k">现金 q₀</div><div class="v">${pct(res.weights[0])}</div></div>
-      <div class="metric"><div class="k">联合情景数</div><div class="v">${mState.probs.length}</div></div>`;
-    let th = "<thead><tr><th>资产</th><th>最优权重 q*</th><th>占比</th></tr></thead><tbody>";
-    th += `<tr><td>现金</td><td>${fmt(res.weights[0], 4)}</td><td>${pct(res.weights[0])}</td></tr>`;
-    mState.assets.forEach((name, j) => {
-      th += `<tr><td>${name}</td><td>${fmt(res.weights[j + 1], 4)}</td><td>${pct(res.weights[j + 1])}</td></tr>`;
+    const method = document.getElementById("m-method").value || "hill";
+    const res = solveMultiMethod(method, mState.probs, mState.grid, r0, sh, lev);
+    fillMultiResult(res, mState.assets);
+    document.getElementById("m-compare-wrap").style.display = "none";
+    if (res.portRs && res.portRs.length) {
+      document.getElementById("m-note").textContent =
+        "各情景组合收益: " + res.portRs.map(x => pct(x, 2)).join(" | ");
+    } else if (res.warmstart) {
+      document.getElementById("m-note").textContent =
+        `§3.8 近似初值 q≈[${res.warmstart.map(x => fmt(x, 3)).join(", ")}]，再梯度精修 ${res.nit} 步`;
+    } else {
+      document.getElementById("m-note").textContent =
+        `方法: ${res.method}${res.nit !== "—" ? "，迭代约 " + res.nit + " 步" : ""}`;
+    }
+  } catch (e) {
+    document.getElementById("m-note").textContent = "错误: " + e.message;
+  }
+}
+
+function runMultiCompare() {
+  try {
+    readMultiInputs();
+    const r0 = num("m-r0") || 0;
+    const sh = document.getElementById("m-short").checked;
+    const lev = document.getElementById("m-lev").checked;
+    const methods = [
+      ["hill", "坐标爬山"],
+      ["grad", "解析梯度精修"],
+      ["warm", "§3.8 近似初值+梯度"],
+    ];
+    const rows = [];
+    for (const [m, label] of methods) {
+      const res = solveMultiMethod(m, mState.probs, mState.grid, r0, sh, lev);
+      rows.push({ label, H: res.H, w: res.weights, method: res.method });
+    }
+    rows.sort((a, b) => (b.H || -Infinity) - (a.H || -Infinity));
+    const names = ["现金", ...mState.assets];
+    let th = "<thead><tr><th>方法</th><th>H (bit)</th>";
+    names.forEach(n => { th += `<th>${n}</th>`; });
+    th += "<th>与最优 H 差</th></tr></thead><tbody>";
+    const bestH = rows[0].H;
+    rows.forEach(r => {
+      th += `<tr><td>${r.label}</td><td>${isFinite(r.H) ? fmt(r.H, 6) : "−∞"}</td>`;
+      r.w.forEach(q => { th += `<td>${fmt(q, 4)}</td>`; });
+      th += `<td>${isFinite(bestH) ? fmt(bestH - r.H, 6) : "—"}</td></tr>`;
     });
     th += "</tbody>";
-    document.getElementById("m-result-table").innerHTML = th;
-    document.getElementById("m-note").textContent =
-      "各情景组合收益: " + res.portRs.map(x => pct(x, 2)).join(" | ");
+    document.getElementById("m-compare-table").innerHTML = th;
+    document.getElementById("m-compare-wrap").style.display = "block";
+    document.getElementById("m-note").innerHTML =
+      `凸问题下三种方法应接近或相同；最优为 <b>${rows[0].label}</b>（H=${fmt(rows[0].H, 6)}）。` +
+      `Python 侧 SLSQP（scipy）结果见 test_solvers_compare.py。`;
+    // 同时展示最优方法的权重表
+    const bestRes = solveMultiMethod(rows[0] && rows[0].label.includes("爬山") ? "hill" : rows[0].label.includes("初值") ? "warm" : "grad",
+      mState.probs, mState.grid, r0, sh, lev);
+    fillMultiResult({ ...bestRes, method: rows[0].label }, mState.assets);
   } catch (e) {
     document.getElementById("m-note").textContent = "错误: " + e.message;
   }
@@ -1334,6 +1545,7 @@ function setMultiMode() {
 }
 
 document.getElementById("m-run").addEventListener("click", runMulti);
+document.getElementById("m-compare").addEventListener("click", runMultiCompare);
 document.getElementById("m-add-asset").addEventListener("click", () => {
   const n = mState.assets.length + 1;
   mState.assets.push("S" + n);

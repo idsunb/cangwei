@@ -908,6 +908,278 @@ def optimize_portfolio_entropy(
         "geometric_return": r_g,
         "expected_return": float(P @ np.asarray(port_rs)),
         "scenario_returns": port_rs,
+        "method": "hill_climb",
+    }
+
+
+# ---------------------------------------------------------------------------
+# 凸优化求解器: SLSQP (§3.1 标准型) 与 §3.8 近似初值 + 精修
+# ---------------------------------------------------------------------------
+
+def _portfolio_metrics(P, Delta, R0, q_assets):
+    """由 q_assets 算 H(bits), r_g, r_a, port_rs, port_R."""
+    port_R = R0 + Delta @ q_assets
+    if np.any(port_R <= 0):
+        return {
+            "H_bits": float("-inf"),
+            "geometric_return": -1.0,
+            "expected_return": float("-inf"),
+            "scenario_returns": [float("-inf")] * len(P),
+            "port_R": port_R,
+        }
+    # H bits
+    H = float(np.sum(P * np.log(port_R) / np.log(2.0)))
+    r_g = float(np.exp(np.sum(P * np.log(port_R))) - 1.0)
+    port_rs = port_R - 1.0
+    r_a = float(P @ port_rs)
+    return {
+        "H_bits": H,
+        "geometric_return": r_g,
+        "expected_return": r_a,
+        "scenario_returns": list(map(float, port_rs)),
+        "port_R": port_R,
+    }
+
+
+def _neg_H_grad(q, P, Delta, R0, allow_short, allow_leverage, max_multiple):
+    """
+    目标 f(q) = -Σ P ln(R0 + Δ q)  及解析梯度.
+
+    ∂f/∂q_k = -Σ_i P_i Δ_ik / port_R_i
+    """
+    port_R = R0 + Delta @ q
+    if np.any(port_R <= 1e-14):
+        # 大惩罚 + 指向可行的伪梯度
+        return 1e10, np.zeros_like(q)
+    f = -float(np.sum(P * np.log(port_R)))
+    g = -(Delta.T @ (P / port_R))
+    return f, g
+
+
+def _project_box_sum(q, lo, hi, sum_max):
+    """投影到 [lo,hi]^N 且 Σq ≤ sum_max."""
+    q = np.clip(q, lo, hi)
+    s = float(q.sum())
+    if s > sum_max:
+        # 等比收缩到可行
+        if s > 0:
+            q = q * (sum_max / s)
+        else:
+            q = np.zeros_like(q)
+        q = np.clip(q, lo, hi)
+    return q
+
+
+def approx_warmstart_weights(
+    probs: Sequence[float],
+    asset_returns: Sequence[Sequence[float]],
+    r0: float = 0.0,
+    t: float = 0.5,
+    allow_short: bool = False,
+    allow_leverage: bool = False,
+    max_multiple: float = 1.0,
+) -> List[float]:
+    """
+    §3.8 思想的多资产初值: 对每个资产单独做抛物线近似 (其它资产=0),
+    再投影到约束集, 作为求解器 warm-start.
+
+    单资产: h(q)≈a q²+b q+c, 三点 q=0,t/2,t; q_k≈clip(-b/2a, L, U).
+    多资产: 各 q_k 独立近似后若 Σq 超限则等比缩放到 sum_max.
+    """
+    P = np.asarray(probs, dtype=float)
+    A = np.asarray(asset_returns, dtype=float)
+    W, N = A.shape
+    P = P / P.sum()
+    R0 = 1.0 + r0
+    Delta = (1.0 + A) - R0
+    lo = -max_multiple if allow_short else 0.0
+    hi = max_multiple if allow_leverage else 1.0
+    sum_max = max_multiple if allow_leverage else 1.0
+
+    q_init = np.zeros(N)
+    for k in range(N):
+        def H_of(x, k=k):
+            q = np.zeros(N)
+            q[k] = x
+            m = _portfolio_metrics(P, Delta, R0, q)
+            return m["H_bits"]
+
+        H0 = H_of(0.0)
+        Ht2 = H_of(t / 2.0)
+        Ht = H_of(t)
+        # 无效三点 → 0
+        if not all(np.isfinite([H0, Ht2, Ht])):
+            q_init[k] = 0.0
+            continue
+        a = 2.0 * (Ht - 2.0 * Ht2 + H0) / (t * t)
+        b = (4.0 * Ht2 - Ht - 3.0 * H0) / t
+        if a == 0:
+            q = hi if b > 0 else lo
+        else:
+            q = -b / (2.0 * a)
+        q_init[k] = float(np.clip(q, lo, hi))
+
+    return list(map(float, _project_box_sum(q_init, lo, hi, sum_max)))
+
+
+def solve_max_entropy_slsqp(
+    probs: Sequence[float],
+    asset_returns: Sequence[Sequence[float]],
+    r0: float = 0.0,
+    allow_short: bool = False,
+    allow_leverage: bool = False,
+    max_multiple: float = 1.0,
+    x0: Optional[Sequence[float]] = None,
+) -> dict:
+    """
+    SLSQP 求解最大增值熵 (凸问题, 局部=全局).
+
+    min_q  -Σ_i P_i ln( R0 + Σ_k q_k Δ_ik )
+    s.t.   lo ≤ q_k ≤ hi,  Σ q_k ≤ sum_max
+
+    x0 可传 §3.8 近似初值 (warm-start)。
+    """
+    from scipy.optimize import minimize
+
+    P = np.asarray(probs, dtype=float)
+    A = np.asarray(asset_returns, dtype=float)
+    W, N = A.shape
+    P = P / P.sum()
+    R0 = 1.0 + r0
+    Delta = (1.0 + A) - R0
+    lo = -max_multiple if allow_short else 0.0
+    hi = max_multiple if allow_leverage else 1.0
+    sum_max = max_multiple if allow_leverage else 1.0
+
+    def fun(q):
+        return _neg_H_grad(q, P, Delta, R0, allow_short, allow_leverage, max_multiple)[0]
+
+    def jac(q):
+        return _neg_H_grad(q, P, Delta, R0, allow_short, allow_leverage, max_multiple)[1]
+
+    if x0 is None:
+        q0 = np.zeros(N)
+    else:
+        q0 = _project_box_sum(
+            np.asarray(x0, dtype=float), lo, hi, sum_max
+        )
+
+    cons = [{"type": "ineq", "fun": lambda q: sum_max - float(q.sum())}]
+    bounds = [(lo, hi)] * N
+    res = minimize(
+        fun,
+        q0,
+        jac=jac,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=cons,
+        options={"ftol": 1e-12, "maxiter": 300},
+    )
+    q = np.clip(res.x, lo, hi)
+    if q.sum() > sum_max + 1e-9:
+        q = _project_box_sum(q, lo, hi, sum_max)
+    q0_cash = 1.0 - float(q.sum())
+    met = _portfolio_metrics(P, Delta, R0, q)
+    return {
+        "weights": [q0_cash] + list(map(float, q)),
+        "cash": q0_cash,
+        "asset_weights": list(map(float, q)),
+        "H_bits": met["H_bits"],
+        "geometric_return": met["geometric_return"],
+        "expected_return": met["expected_return"],
+        "scenario_returns": met["scenario_returns"],
+        "success": bool(res.success),
+        "message": str(res.message),
+        "nit": int(res.nit),
+        "method": "slsqp",
+        "x0": list(map(float, q0)),
+    }
+
+
+def solve_max_entropy_warmstart(
+    probs: Sequence[float],
+    asset_returns: Sequence[Sequence[float]],
+    r0: float = 0.0,
+    allow_short: bool = False,
+    allow_leverage: bool = False,
+    max_multiple: float = 1.0,
+    t: float = 0.5,
+) -> dict:
+    """
+    §3.8 近似初值 + SLSQP 精修 (大规模推荐路径).
+
+    步骤:
+      1) 各资产抛物线近似得 q_init
+      2) 以 q_init 为 x0 跑 SLSQP
+    """
+    q_init = approx_warmstart_weights(
+        probs,
+        asset_returns,
+        r0=r0,
+        t=t,
+        allow_short=allow_short,
+        allow_leverage=allow_leverage,
+        max_multiple=max_multiple,
+    )
+    res = solve_max_entropy_slsqp(
+        probs,
+        asset_returns,
+        r0=r0,
+        allow_short=allow_short,
+        allow_leverage=allow_leverage,
+        max_multiple=max_multiple,
+        x0=q_init,
+    )
+    res["method"] = "approx_warmstart_slsqp"
+    res["warmstart"] = q_init
+    return res
+
+
+def compare_solvers(
+    probs: Sequence[float],
+    asset_returns: Sequence[Sequence[float]],
+    r0: float = 0.0,
+    allow_short: bool = False,
+    allow_leverage: bool = False,
+    max_multiple: float = 1.0,
+) -> dict:
+    """
+    三种方法对比: 爬山 / SLSQP / 近似初值+SLSQP.
+
+    返回各方法结果 + H 最大者名次.
+    """
+    hill = optimize_portfolio_entropy(
+        probs,
+        asset_returns,
+        r0=r0,
+        allow_short=allow_short,
+        allow_leverage=allow_leverage,
+        max_multiple=max_multiple,
+    )
+    hill["method"] = "hill_climb"
+    sls = solve_max_entropy_slsqp(
+        probs, asset_returns, r0, allow_short, allow_leverage, max_multiple
+    )
+    warm = solve_max_entropy_warmstart(
+        probs, asset_returns, r0, allow_short, allow_leverage, max_multiple
+    )
+    rows = {
+        "hill_climb": hill,
+        "slsqp": sls,
+        "approx_warmstart_slsqp": warm,
+    }
+    # 排名按 H_bits
+    ranked = sorted(
+        rows.items(),
+        key=lambda kv: (kv[1].get("H_bits", float("-inf"))),
+        reverse=True,
+    )
+    return {
+        "methods": rows,
+        "ranking": [k for k, _ in ranked],
+        "best": ranked[0][0],
+        "H_bits": {k: v.get("H_bits") for k, v in rows.items()},
+        "weights": {k: v.get("weights") for k, v in rows.items()},
     }
 
 
