@@ -1343,7 +1343,8 @@ function gradRefine(probs, grid, r0, x0, allowShort, allowLev) {
   let q = project((x0 || new Array(N).fill(0)).slice());
   let best = q.slice(), bestH = H(q);
   let step = 0.15;
-  for (let it = 0; it < 400; it++) {
+  let nit = 0;
+  for (; nit < 400; nit++) {
     const g = grad(q);
     if (!g) break;
     let improved = false;
@@ -1363,7 +1364,7 @@ function gradRefine(probs, grid, r0, x0, allowShort, allowLev) {
       if (step < 1e-5) break;
     }
   }
-  return { weights: best, H: bestH, iterations: it };
+  return { weights: best, H: bestH, iterations: nit };
 }
 
 /** §3.8 单资产抛物线 → 多资产初值 */
