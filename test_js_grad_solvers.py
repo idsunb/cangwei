@@ -172,6 +172,69 @@ console.log("method " + r.method);
             failures += 1
         check("warm H≈0.1624", ok, f"H={H}")
 
+    print("\n[4] 透支上限 M 生效 (用户例 q*=3.75)")
+    driver3 = "\n".join(
+        [
+            "const LOG2 = Math.log(2);",
+            "function log2(x) { return Math.log(x) / LOG2; }",
+            grab(js, "growthEntropy"),
+            grab(js, "geoMean"),
+            grab(js, "expReturn"),
+            grab(js, "optimizePortfolio"),
+            grab(js, "gradRefine"),
+            grab(js, "approxWarmstart"),
+            grab(js, "solveMultiMethod"),
+            "const probs = [0.5, 0.5];",
+            "const grid = [[0.08], [-0.05]];",
+            "const out = {};",
+            "function runTag(tag, method, lev, M) {",
+            "  const r = solveMultiMethod(method, probs, grid, 0, false, lev, M);",
+            "  out[tag] = { q: r.weights[1], cash: r.weights[0], H: r.H };",
+            "}",
+            "runTag('m1', 'grad', true, 1);",
+            "runTag('m2', 'grad', true, 2);",
+            "runTag('m5', 'grad', true, 5);",
+            "runTag('hill5', 'hill', true, 5);",
+            "runTag('warm5', 'warm', true, 5);",
+            "console.log(JSON.stringify(out));",
+        ]
+    )
+    n3 = subprocess.run(
+        ["node", "-e", driver3], capture_output=True, text=True, encoding="utf-8"
+    )
+    if n3.returncode != 0:
+        failures += 1
+        check("透支驱动执行", False, n3.stderr[-400:])
+    else:
+        import json
+
+        raw = n3.stdout.strip().splitlines()[-1] if n3.stdout.strip() else "{}"
+        data = json.loads(raw)
+        ok = abs(data["m1"]["q"] - 1.0) < 1e-2
+        if not ok:
+            failures += 1
+        check("M=1 → q≈1", ok, f"q={data['m1']['q']}")
+        ok = abs(data["m2"]["q"] - 2.0) < 1e-2
+        if not ok:
+            failures += 1
+        check("M=2 → q≈2", ok, f"q={data['m2']['q']}")
+        ok = abs(data["m5"]["q"] - 3.75) < 1e-2
+        if not ok:
+            failures += 1
+        check("M=5 → q≈3.75", ok, f"q={data['m5']['q']}")
+        ok = data["m5"]["cash"] < -1.0
+        if not ok:
+            failures += 1
+        check("透支后现金为负", ok, f"cash={data['m5']['cash']}")
+        ok = abs(data["hill5"]["q"] - 3.75) < 0.1
+        if not ok:
+            failures += 1
+        check("爬山 M=5 → q≈3.75", ok, f"q={data['hill5']['q']}")
+        ok = abs(data["warm5"]["q"] - 3.75) < 1e-2
+        if not ok:
+            failures += 1
+        check("warm M=5 → q≈3.75", ok, f"q={data['warm5']['q']}")
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)

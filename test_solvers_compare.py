@@ -185,6 +185,62 @@ def main() -> int:
         failures += 1
     check("透支不超 M", ok, f"q={s_lev['asset_weights'][0]:.4f}")
 
+    print("\n[6b] 用户例: {0.5|+0.08, 0.5|-0.05}, r0=0 → 闭式 q*=3.75")
+    # 书中 (3.2.3): q' = -(P1Δ1+P2Δ2)/(Δ1Δ2)*R0
+    # D1=-0.05, D2=0.08 → q' = 3.75
+    u_p = [0.5, 0.5]
+    u_r = [[0.08], [-0.05]]
+    closed_u = optimal_position_single([0.5, 0.5], [0.08, -0.05], r0=0.0,
+                                       allow_leverage=True, max_multiple=10)
+    ok = close(closed_u.q_star, 3.75, 1e-6)
+    if not ok:
+        failures += 1
+    check("闭式 q*=3.75", ok, f"got {closed_u.q_star}")
+
+    s_M1 = solve_max_entropy_slsqp(u_p, u_r, r0=0.0, allow_leverage=True, max_multiple=1.0)
+    ok = close(s_M1["asset_weights"][0], 1.0, 1e-5)
+    if not ok:
+        failures += 1
+    check("M=1 时 q=1（透支上限卡住）", ok, f"q={s_M1['asset_weights'][0]:.6f}")
+
+    s_M2 = solve_max_entropy_slsqp(u_p, u_r, r0=0.0, allow_leverage=True, max_multiple=2.0)
+    ok = close(s_M2["asset_weights"][0], 2.0, 1e-5)
+    if not ok:
+        failures += 1
+    check("M=2 时 q=2", ok, f"q={s_M2['asset_weights'][0]:.6f}")
+
+    s_M5 = solve_max_entropy_slsqp(u_p, u_r, r0=0.0, allow_leverage=True, max_multiple=5.0)
+    ok = close(s_M5["asset_weights"][0], 3.75, 1e-4)
+    if not ok:
+        failures += 1
+    check("M=5 时 q=3.75（达闭式最优）", ok, f"q={s_M5['asset_weights'][0]:.6f}")
+    ok = s_M5["cash"] < 0
+    if not ok:
+        failures += 1
+    check("透支后现金为负", ok, f"cash={s_M5['cash']:.6f}")
+    # H(3.75) > H(1)
+    ok = s_M5["H_bits"] > s_M1["H_bits"] + 1e-3
+    if not ok:
+        failures += 1
+    check("H(q=3.75)>H(q=1)", ok,
+          f"H5={s_M5['H_bits']:.6f}, H1={s_M1['H_bits']:.6f}")
+
+    # 爬山与 warmstart 同样尊重 M
+    hill_m5 = optimize_portfolio_entropy(
+        u_p, u_r, r0=0.0, allow_leverage=True, max_multiple=5.0
+    )
+    ok = close(hill_m5["asset_weights"][0], 3.75, 0.05)
+    if not ok:
+        failures += 1
+    check("爬山 M=5 → q≈3.75", ok, f"q={hill_m5['asset_weights'][0]:.4f}")
+    warm_m5 = solve_max_entropy_warmstart(
+        u_p, u_r, r0=0.0, allow_leverage=True, max_multiple=5.0
+    )
+    ok = close(warm_m5["asset_weights"][0], 3.75, 1e-3)
+    if not ok:
+        failures += 1
+    check("warm M=5 → q≈3.75", ok, f"q={warm_m5['asset_weights'][0]:.4f}")
+
     print("\n[7] 方法元数据齐全")
     for key, m in [
         ("hill", optimize_portfolio_entropy([0.5, 0.5], [[-1.0], [2.0]])),
