@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>相关性 · 最大增值熵计算器</title>
+<link rel="stylesheet" href="correlated.css" />
+</head>
+<body>
+<header>
+  <h1>相关性下的最大增值熵</h1>
+  <p>多证券收益相关时，相关性进入的是<strong>联合分布 P(r₁,…,rₙ)</strong>，目标函数仍是 max H = Σ Pᵢ log(Σ q R)。本页从两证券精确 2×2 联合表，到多证券相关矩阵 + 高斯 copula 展开。</p>
+</header>
+
+<main>
+  <div class="tabs">
+    <button class="tab active" data-tab="two">两证券 + ρ</button>
+    <button class="tab" data-tab="multi">多证券相关矩阵</button>
+    <button class="tab" data-tab="rho">ρ 扫描对比</button>
+    <button class="tab" data-tab="theory">方法说明</button>
+  </div>
+
+  <!-- ============ 两证券 ============ -->
+  <section class="panel active" id="panel-two">
+    <h2>两证券：精确联合分布</h2>
+    <p class="sub">每种证券两状态（跌 / 涨）。给定边际概率、收益和相关系数 ρ，写出 2×2 联合表，再最大化增值熵。</p>
+    <div class="formula">P(H,H) = pₐ pᵦ + ρ·√[pₐ(1−pₐ) pᵦ(1−pᵦ)]
+P(H,L) = pₐ − P(H,H)  等，由边际补全
+H = Σᵢ Pᵢ log₂( q₀R₀ + qₐRᵢₐ + qᵦRᵢᵦ )</div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>证券 A</h3>
+        <div class="grid">
+          <div><label>P(涨)</label><input id="t-pA" type="number" value="0.5" step="0.05" min="0.01" max="0.99" /></div>
+          <div><label>r(跌)</label><input id="t-rAL" type="number" value="-0.1" step="0.01" /></div>
+          <div><label>r(涨)</label><input id="t-rAH" type="number" value="0.3" step="0.01" /></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>证券 B</h3>
+        <div class="grid">
+          <div><label>P(涨)</label><input id="t-pB" type="number" value="0.5" step="0.05" min="0.01" max="0.99" /></div>
+          <div><label>r(跌)</label><input id="t-rBL" type="number" value="-0.15" step="0.01" /></div>
+          <div><label>r(涨)</label><input id="t-rBH" type="number" value="0.4" step="0.01" /></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div><label>相关系数 ρ</label><input id="t-rho" type="number" value="0" step="0.05" min="-1" max="1" /></div>
+      <div><label>r₀</label><input id="t-r0" type="number" value="0" step="0.01" /></div>
+      <div><label>透支上限 M</label><input id="t-M" type="number" value="1" step="0.1" min="1" /></div>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="t-lev" /> 允许透支</label>
+      <label class="check"><input type="checkbox" id="t-short" /> 允许卖空</label>
+      <button class="primary" id="t-run">计算联合分布与最优仓位</button>
+      <button class="ghost" data-preset="ind">ρ=0 独立</button>
+      <button class="ghost" data-preset="pos">ρ=+0.8</button>
+      <button class="ghost" data-preset="neg">ρ=−0.8</button>
+    </div>
+
+    <h3 style="font-size:15px;margin:14px 0 6px">联合情景表</h3>
+    <table id="t-joint"></table>
+    <div class="note" id="t-note"></div>
+
+    <h3 style="font-size:15px;margin:16px 0 6px">最优仓位</h3>
+    <div class="results" id="t-out"></div>
+    <table id="t-weights"></table>
+    <canvas id="t-canvas" width="640" height="260"></canvas>
+    <p class="src">ρ 影响联合概率，从而改变几何平均与最优 q；目标函数形式不变。</p>
+  </section>
+
+  <!-- ============ 多证券 ============ -->
+  <section class="panel" id="panel-multi">
+    <h2>多证券：相关矩阵 + 高斯 Copula</h2>
+    <p class="sub">每种证券两状态；相关矩阵 R 须对称、对角为 1。用高斯 copula（Cholesky + 正态边缘）生成 2ⁿ 联合概率，再求最优仓位。</p>
+    <div class="formula">Z ~ N(0, R)  →  Uₖ=Φ(Zₖ)  →  状态ₖ = 涨 若 Uₖ > 1−pₖ
+P(联合) ≈ 频率(大样本，固定种子) 或 2 证券精确式
+max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
+
+    <div class="row">
+      <button class="ghost" id="n-add">＋ 证券</button>
+      <button class="ghost" id="n-del">－ 证券</button>
+      <div style="min-width:90px"><label>证券数</label><input id="n-count" type="number" value="3" min="2" max="6" /></div>
+      <div style="min-width:100px"><label>r₀</label><input id="n-r0" type="number" value="0" step="0.01" /></div>
+      <div style="min-width:110px"><label>透支上限 M</label><input id="n-M" type="number" value="1" step="0.1" min="1" /></div>
+      <label class="check"><input type="checkbox" id="n-lev" /> 允许透支</label>
+      <label class="check"><input type="checkbox" id="n-short" /> 允许卖空</label>
+      <button class="primary" id="n-run">展开联合分布并求解</button>
+      <button class="ghost" id="n-reset">重置示例</button>
+    </div>
+
+    <h3 style="font-size:15px;margin:12px 0 6px">各证券边际（两状态）</h3>
+    <div class="multi-rows" id="n-marg"></div>
+
+    <h3 style="font-size:15px;margin:12px 0 6px">相关矩阵 R（对称，对角=1）</h3>
+    <div id="n-corr"></div>
+    <div class="row">
+      <button class="ghost" id="n-corr-zero">全部 ρ=0</button>
+      <button class="ghost" id="n-corr-pos">全部 ρ=0.5</button>
+      <button class="ghost" id="n-corr-toeplitz">Toeplitz 0.5^|i−j|</button>
+      <button class="ghost" id="n-psd">投影到最近合法 PSD</button>
+    </div>
+
+    <div class="note" id="n-note"></div>
+    <div class="results" id="n-out"></div>
+    <table id="n-weights"></table>
+    <h3 style="font-size:15px;margin:16px 0 6px">联合情景（前 16 行）</h3>
+    <table id="n-joint"></table>
+    <p class="src">相关矩阵只刻画两两相关；完整联合由高斯 copula 补全（N&gt;2 时联合不唯一）。</p>
+  </section>
+
+  <!-- ============ ρ 扫描 ============ -->
+  <section class="panel" id="panel-rho">
+    <h2>ρ 扫描：相关如何影响最优仓位</h2>
+    <p class="sub">固定两证券边际，扫描 ρ∈[−1,1]，观察 H*、qₐ*、qᵦ* 与分散效果。</p>
+    <div class="row">
+      <button class="primary" id="s-run">扫描 ρ</button>
+      <button class="ghost" id="s-copy-two">沿用「两证券」当前输入</button>
+    </div>
+    <canvas id="s-canvas" width="640" height="300"></canvas>
+    <table id="s-table"></table>
+    <div class="note" id="s-note"></div>
+    <p class="src">书中 §2.5：相关越低组合效果越好；ρ=1 等价于单资产，ρ=−1 可接近无风险套利结构。</p>
+  </section>
+
+  <!-- ============ 说明 ============ -->
+  <section class="panel" id="panel-theory">
+    <h2>相关性如何进入最大增值熵</h2>
+    <p class="sub">目标函数不变，变的是 Pᵢ（情景权重）。</p>
+    <table>
+      <thead><tr><th>层次</th><th>做法</th><th>适用</th></tr></thead>
+      <tbody>
+        <tr><td>两证券·两状态</td><td>Bernoulli 精确 2×2：P(HH)=pₐpᵦ+ρσₐσᵦ</td><td>本页「两证券」</td></tr>
+        <tr><td>两证券·多状态</td><td>用户直接给联合表，或 copula</td><td>主计算器联合表</td></tr>
+        <tr><td>多证券</td><td>相关矩阵 + 高斯 copula → 2ⁿ 联合频率</td><td>本页「多证券」</td></tr>
+        <tr><td>书中 §3.8 近似</td><td>h=Σ qₖ(aₖ…cₖⱼ…)+…，相关进 dₖⱼcₖⱼ</td><td>快速近似（抛物线页）</td></tr>
+      </tbody>
+    </table>
+    <div class="formula">max_q  H(q) = Σᵢ P(rᵢ) · log( q₀R₀ + Σₖ qₖ(1+rᵢₖ) )
+s.t.  Σ q = 1,  qₖ ≥ 0（或允许卖空/透支）
+
+相关只改变 P(r₁,…,rₙ)：
+  独立:  P = Πₖ pₖ
+  相关:  P 由联合表 / copula 生成
+  ρ↑  → 同涨同跌变多 → 分散红利↓ → 几何增长↓
+  ρ↓  → 对冲变强 → 可提高总仓位与 H</div>
+    <div class="note">
+      风险提示：ρ 由历史估计时应使用区间或情景压力；两两相关 ≠ 完整依赖结构（尾部相关可能更大）。
+    </div>
+  </section>
+</main>
+
+<footer>
+  理论：鲁晨光《投资组合的熵理论和信息价值》§2.5、§3.1、§3.8。
+  与《仓位管理计算器.html》互补：本页专注相关性联合分布。离线可用，无外部依赖。
+</footer>
+
+<script src="correlated.js"></script>
+</body>
+</html>

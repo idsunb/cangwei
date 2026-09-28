@@ -29,6 +29,106 @@ import numpy as np
 # 基本概念 §2.1
 # ---------------------------------------------------------------------------
 
+def joint_2x2_correlated(
+    p_a: float,
+    p_b: float,
+    rho: float,
+    r_a: Tuple[float, float],
+    r_b: Tuple[float, float],
+) -> List[dict]:
+    """
+    两证券两状态的精确联合表 (Bernoulli).
+
+    P(HH) = p_a p_b + rho * sqrt(p_a(1-p_a) p_b(1-p_b))
+    再由边际补全；P(HH) 裁剪到 Frechet 边界 [max(0,p_a+p_b-1), min(p_a,p_b)].
+
+    Returns
+    -------
+    [{'p','sa','sb','ra','rb','label'}, ...]  共 4 行: LL, LH, HL, HH
+    """
+    s = math.sqrt(max(0.0, p_a * (1 - p_a) * p_b * (1 - p_b)))
+    p11 = p_a * p_b + rho * s
+    lo = max(0.0, p_a + p_b - 1.0)
+    hi = min(p_a, p_b)
+    p11 = min(hi, max(lo, p11))
+    p10 = p_a - p11
+    p01 = p_b - p11
+    p00 = 1.0 - p_a - p_b + p11
+    rows = [
+        {"p": p00, "sa": 0, "sb": 0, "ra": r_a[0], "rb": r_b[0], "label": "LL"},
+        {"p": p01, "sa": 0, "sb": 1, "ra": r_a[0], "rb": r_b[1], "label": "LH"},
+        {"p": p10, "sa": 1, "sb": 0, "ra": r_a[1], "rb": r_b[0], "label": "HL"},
+        {"p": p11, "sa": 1, "sb": 1, "ra": r_a[1], "rb": r_b[1], "label": "HH"},
+    ]
+    total = sum(r["p"] for r in rows) or 1.0
+    for r in rows:
+        r["p"] = max(0.0, r["p"]) / total
+    return rows
+
+
+def joint_from_correlation_copula(
+    marginals: Sequence[dict],
+    corr: Sequence[Sequence[float]],
+    n_samples: int = 6000,
+    seed: int = 42,
+) -> Tuple[List[float], List[List[float]]]:
+    """
+    高斯 copula: 两状态边际 + 相关矩阵 → 联合情景 (近似频率).
+
+    marginals[k] = {"p_high", "r_low", "r_high"}
+    corr: N×N 对称、对角 1、正定
+
+    Returns (probs, grid) 与 expand_joint_from_marginals 相同结构.
+    """
+    import numpy as np
+
+    n = len(marginals)
+    C = np.asarray(corr, dtype=float)
+    # 对称化 + 对角
+    C = 0.5 * (C + C.T)
+    np.fill_diagonal(C, 1.0)
+    # Cholesky; 失败则收缩
+    L = None
+    for shrink in range(20):
+        try:
+            L = np.linalg.cholesky(C if shrink == 0 else (1 - 0.05 * shrink) * C + (0.05 * shrink) * np.eye(n))
+            if shrink > 0:
+                C = (1 - 0.05 * shrink) * C + (0.05 * shrink) * np.eye(n)
+            break
+        except np.linalg.LinAlgError:
+            continue
+    if L is None:
+        raise ValueError("相关矩阵非正定")
+
+    rng = np.random.default_rng(seed)
+    eps = rng.standard_normal((n_samples, n))
+    Z = eps @ L.T
+    U = 0.5 * (1.0 + np.vectorize(math.erf)(Z / math.sqrt(2.0)))
+    states = np.zeros((n_samples, n), dtype=int)
+    for k in range(n):
+        states[:, k] = (U[:, k] > (1.0 - marginals[k]["p_high"])).astype(int)
+
+    counts: dict = {}
+    for i in range(n_samples):
+        idx = 0
+        for k in range(n):
+            if states[i, k]:
+                idx |= 1 << k
+        counts[idx] = counts.get(idx, 0) + 1
+
+    probs: List[float] = []
+    grid: List[List[float]] = []
+    for idx, c in sorted(counts.items()):
+        p = c / n_samples
+        row = []
+        for k in range(n):
+            bit = (idx >> k) & 1
+            row.append(marginals[k]["r_high"] if bit else marginals[k]["r_low"])
+        probs.append(p)
+        grid.append(row)
+    return probs, grid
+
+
 def split_cash_debt(cash_raw: float, asset_weights: Optional[Sequence[float]] = None) -> dict:
     """
     资金结构拆分: 现金 / 负债 / 标的合计.
