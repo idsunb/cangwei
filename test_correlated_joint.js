@@ -17,7 +17,11 @@ const code = [
   grab("makeRng"),
   grab("cholesky"),
   grab("projectCorrPSD"),
+  grab("marginalCuts"),
+  grab("pickState"),
+  grab("normalizeMarginals"),
   grab("jointFromCopula"),
+  grab("jointIndependent"),
   grab("portReturns"),
   grab("growthEntropy"),
   grab("optimizeCorrelated"),
@@ -77,6 +81,29 @@ const Rbad = [
 const Rp = projectCorrPSD(Rbad, 3);
 const L = cholesky(Rp);
 check("非正定可投影", !!L, JSON.stringify(Rp[0].map((x) => +x.toFixed(3))));
+
+// 2×3: A 2 态, B 3 态
+const m23 = [
+  { name: "A", states: [{ p: 0.5, r: -0.1 }, { p: 0.5, r: 0.3 }] },
+  {
+    name: "B",
+    states: [
+      { p: 0.3, r: -0.25 },
+      { p: 0.4, r: 0.08 },
+      { p: 0.3, r: 0.5 },
+    ],
+  },
+];
+const j23 = jointFromCopula(m23, [[1, 0.4], [0.4, 1]], 5000, 7);
+const s23 = j23.reduce((a, b) => a + b.p, 0);
+check("2×3 概率和≈1", Math.abs(s23 - 1) < 1e-9, s23.toFixed(8));
+check("2×3 情景数≤6", j23.length <= 6 && j23.length >= 3, String(j23.length));
+const pA0 = j23.filter((r) => Math.abs(r.returns[0] + 0.1) < 1e-12).reduce((a, b) => a + b.p, 0);
+check("2×3 边际 A0≈0.5", Math.abs(pA0 - 0.5) < 0.08, pA0.toFixed(4));
+const o23 = optimizeCorrelated(j23, 0, false, false, 1);
+check("2×3 可优化", isFinite(o23.H), `H=${o23.H.toFixed(6)}`);
+const i23 = jointIndependent(m23);
+check("2×3 独立 6 格", i23.length === 6, String(i23.length));
 
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
 process.exit(fail ? 1 : 0);

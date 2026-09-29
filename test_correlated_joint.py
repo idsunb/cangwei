@@ -136,6 +136,75 @@ def main() -> int:
         failures += 1
     check("split_cash_debt", ok, str(sp))
 
+    print("\n[5b] 2×3 状态数不同 (A 2 态, B 3 态)")
+    marg_2x3 = [
+        {"states": [{"p": 0.5, "r": -0.1}, {"p": 0.5, "r": 0.3}]},
+        {"states": [
+            {"p": 0.3, "r": -0.25},
+            {"p": 0.4, "r": 0.08},
+            {"p": 0.3, "r": 0.5},
+        ]},
+    ]
+    corr_2x3 = [[1.0, 0.4], [0.4, 1.0]]
+    p23, g23 = joint_from_correlation_copula(marg_2x3, corr_2x3, n_samples=5000, seed=7)
+    ok = abs(sum(p23) - 1.0) < 1e-9 and len(p23) <= 6
+    if not ok:
+        failures += 1
+    check("2×3 联合和=1 且格数≤6", ok, f"n={len(p23)}, sum={sum(p23)}")
+    # 边际还原: A 第1态 r=-0.1 的概率 ≈ 0.5
+    pA0 = sum(p for p, row in zip(p23, g23) if abs(row[0] - (-0.1)) < 1e-12)
+    ok = abs(pA0 - 0.5) < 0.05  # MC 误差
+    if not ok:
+        failures += 1
+    check("2×3 边际还原 A0≈0.5", ok, f"got {pA0:.4f}")
+    # B 三态收益各出现
+    b_vals = {round(row[1], 6) for row in g23}
+    ok = {-0.25, 0.08, 0.5} <= b_vals or {-0.25, 0.08, 0.5}.issubset(b_vals)
+    if not ok:
+        # 至少两个不同 B 收益
+        ok = len(b_vals) >= 2
+    if not ok:
+        failures += 1
+    check("2×3 出现多种 B 收益", ok, str(sorted(b_vals)))
+
+    # 独立笛卡尔积 2×3=6
+    pind, gind = expand_joint_from_marginals([
+        [(0.5, -0.1), (0.5, 0.3)],
+        [(0.3, -0.25), (0.4, 0.08), (0.3, 0.5)],
+    ])
+    ok = len(pind) == 6 and abs(sum(pind) - 1.0) < 1e-9
+    if not ok:
+        failures += 1
+    check("独立展开 2×3=6", ok, f"n={len(pind)}")
+
+    o23 = optimize_portfolio_entropy(p23, g23, r0=0.0)
+    oi23 = optimize_portfolio_entropy(pind, gind, r0=0.0)
+    ok = all(x == x and abs(x) != float("inf") for x in o23["weights"])
+    if not ok:
+        failures += 1
+    check("2×3 相关可求最优", ok, f"w={o23['weights']}")
+    # ρ=0.4 正相关: H 应不高于独立
+    ok = o23["H_bits"] <= oi23["H_bits"] + 0.02
+    if not ok:
+        failures += 1
+    check("2×3 正相关 H≤独立 H", ok,
+          f"corr={o23['H_bits']:.6f}, ind={oi23['H_bits']:.6f}")
+
+    # 旧格式仍可用
+    p_old, g_old = joint_from_correlation_copula(
+        [
+            {"p_high": 0.5, "r_low": -0.1, "r_high": 0.3},
+            {"p_high": 0.5, "r_low": -0.15, "r_high": 0.4},
+        ],
+        [[1.0, 0.0], [0.0, 1.0]],
+        n_samples=2000,
+        seed=3,
+    )
+    ok = abs(sum(p_old) - 1.0) < 1e-9
+    if not ok:
+        failures += 1
+    check("旧两状态格式兼容", ok, f"n={len(p_old)}")
+
     print("\n[6] JS 侧 test_correlated_joint.js")
     import subprocess
 

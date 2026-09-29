@@ -109,72 +109,138 @@ function projectCorrPSD(R, n) {
 }
 
 /**
- * 高斯 copula：多证券两状态边际 + 相关矩阵 → 2^n 联合概率。
- * marginals[k] = { pHigh, rLow, rHigh }
+ * 边际 → 分位阈值。states = [{p,r}, ...]，p 之和≈1。
+ * 返回 cut[i] 使得 state j ⇔ cut[j] < U ≤ cut[j+1]
  */
-function jointFromCopula(marginals, corr, nSamples = 6000, seed = 42) {
-  const n = marginals.length;
+function marginalCuts(states) {
+  const ps = states.map((s) => Math.max(0, s.p));
+  const sum = ps.reduce((a, b) => a + b, 0) || 1;
+  const cuts = [0];
+  let acc = 0;
+  for (const p of ps) {
+    acc += p / sum;
+    cuts.push(Math.min(1, acc));
+  }
+  cuts[cuts.length - 1] = 1;
+  return cuts;
+}
+
+function pickState(u, cuts) {
+  // cuts.length = n+1
+  for (let j = 0; j < cuts.length - 1; j++) {
+    if (u <= cuts[j + 1] + 1e-15) return j;
+  }
+  return cuts.length - 2;
+}
+
+/**
+ * 高斯 copula：各资产状态数可不同 + 相关矩阵 → 联合概率。
+ * marginals[k] = { name?, states: [{p, r}, ...] }
+ * 兼容旧的 { pHigh, rLow, rHigh } 两状态写法。
+ */
+function normalizeMarginals(marginals) {
+  return marginals.map((m, k) => {
+    if (m.states && m.states.length) {
+      return {
+        name: m.name || "S" + (k + 1),
+        states: m.states.map((s) => ({ p: +s.p, r: +s.r })),
+      };
+    }
+    // 旧格式两状态
+    return {
+      name: m.name || "S" + (k + 1),
+      states: [
+        { p: 1 - m.pHigh, r: m.rLow },
+        { p: m.pHigh, r: m.rHigh },
+      ],
+    };
+  });
+}
+
+function jointFromCopula(marginals, corr, nSamples = 8000, seed = 42) {
+  const marg = normalizeMarginals(marginals);
+  const n = marg.length;
   const L = cholesky(corr);
   if (!L) throw new Error("相关矩阵非正定，请先投影到 PSD");
-  const states = 1 << n;
-  const counts = new Array(states).fill(0);
+  const cuts = marg.map((m) => marginalCuts(m.states));
+  const dims = marg.map((m) => m.states.length);
+  const total = dims.reduce((a, b) => a * b, 1);
+  if (total > 400) {
+    throw new Error(`联合情景数 ${total} 过大（>400），请减少状态数`);
+  }
+  const counts = new Array(total).fill(0);
   const rng = makeRng(seed);
-  const z = new Array(n).fill(0);
+  const eps = new Array(n).fill(0);
   for (let s = 0; s < nSamples; s++) {
-    // 独立标准正态
     for (let i = 0; i < n; i++) {
       const u1 = Math.max(1e-12, rng());
       const u2 = rng();
       const r = Math.sqrt(-2 * Math.log(u1));
       const th = 2 * Math.PI * u2;
-      z[i] = r * Math.cos(th);
+      eps[i] = r * Math.cos(th);
     }
-    // Z = L ε
     let idx = 0;
-    const statesBit = new Array(n).fill(0);
+    const st = new Array(n).fill(0);
     for (let k = 0; k < n; k++) {
       let zk = 0;
-      for (let j = 0; j <= k; j++) zk += L[k][j] * z[j];
+      for (let j = 0; j <= k; j++) zk += L[k][j] * eps[j];
       const u = normCdf(zk);
-      // 状态=涨 若 u > 1-pHigh
-      statesBit[k] = u > 1 - marginals[k].pHigh ? 1 : 0;
-      if (statesBit[k]) idx |= 1 << k;
+      st[k] = pickState(u, cuts[k]);
+      idx = idx * dims[k] + st[k];
     }
     counts[idx] += 1;
   }
-  // 汇总为情景列表
   const rows = [];
-  for (let idx = 0; idx < states; idx++) {
+  for (let idx = 0; idx < total; idx++) {
     const p = counts[idx] / nSamples;
     if (p <= 0) continue;
     const sa = [];
     const ra = [];
-    for (let k = 0; k < n; k++) {
-      const bit = (idx >> k) & 1;
-      sa.push(bit);
-      ra.push(bit ? marginals[k].rHigh : marginals[k].rLow);
+    let t = idx;
+    // mixed radix 解码（与编码顺序一致：先资产 0 为高位）
+    const tmp = [];
+    for (let k = n - 1; k >= 0; k--) {
+      tmp[k] = t % dims[k];
+      t = Math.floor(t / dims[k]);
     }
-    rows.push({ p, states: sa, returns: ra, label: sa.join("") });
+    for (let k = 0; k < n; k++) {
+      sa.push(tmp[k]);
+      ra.push(marg[k].states[tmp[k]].r);
+    }
+    rows.push({
+      p,
+      states: sa,
+      returns: ra,
+      label: sa.join(","),
+    });
   }
   return rows;
 }
 
-/** 独立联合（对照） */
+/** 独立联合（对照）—— 各资产状态数可不同 */
 function jointIndependent(marginals) {
-  const n = marginals.length;
-  const states = 1 << n;
+  const marg = normalizeMarginals(marginals);
+  const n = marg.length;
+  const dims = marg.map((m) => m.states.length);
+  const total = dims.reduce((a, b) => a * b, 1);
+  if (total > 400) throw new Error(`联合情景数 ${total} 过大（>400）`);
   const rows = [];
-  for (let idx = 0; idx < states; idx++) {
+  for (let idx = 0; idx < total; idx++) {
     let p = 1;
     const sa = [];
     const ra = [];
-    for (let k = 0; k < n; k++) {
-      const bit = (idx >> k) & 1;
-      p *= bit ? marginals[k].pHigh : 1 - marginals[k].pHigh;
-      sa.push(bit);
-      ra.push(bit ? marginals[k].rHigh : marginals[k].rLow);
+    let t = idx;
+    const tmp = [];
+    for (let k = n - 1; k >= 0; k--) {
+      tmp[k] = t % dims[k];
+      t = Math.floor(t / dims[k]);
     }
-    rows.push({ p, states: sa, returns: ra, label: sa.join("") });
+    for (let k = 0; k < n; k++) {
+      p *= marg[k].states[tmp[k]].p;
+      sa.push(tmp[k]);
+      ra.push(marg[k].states[tmp[k]].r);
+    }
+    rows.push({ p, states: sa, returns: ra, label: sa.join(",") });
   }
   return rows;
 }
@@ -453,17 +519,28 @@ function drawRhoCurve(pA, pB, rAL, rAH, rBL, rBH, r0, sh, lev, M, markRho) {
   ctx.fillText("H*(ρ)", pad.l + 4, pad.t + 12);
 }
 
-/* ---- 多证券 ---- */
+/* ---- 多证券（各资产状态数可不同） ---- */
 let margState = [];
 let corrState = [];
+
+function defaultMarg2() {
+  return {
+    name: "A",
+    states: [
+      { p: 0.5, r: -0.1 },
+      { p: 0.5, r: 0.3 },
+    ],
+  };
+}
 
 function initMulti(n) {
   n = Math.max(2, Math.min(6, n || 3));
   margState = Array.from({ length: n }, (_, k) => ({
     name: "S" + (k + 1),
-    pHigh: 0.5,
-    rLow: -0.1 - 0.02 * k,
-    rHigh: 0.2 + 0.05 * k,
+    states: [
+      { p: 0.5, r: -0.1 - 0.02 * k },
+      { p: 0.5, r: 0.2 + 0.05 * k },
+    ],
   }));
   corrState = Array.from({ length: n }, (_, i) =>
     Array.from({ length: n }, (_, j) => (i === j ? 1 : Math.pow(0.5, Math.abs(i - j))))
@@ -472,24 +549,77 @@ function initMulti(n) {
   renderMultiTables();
 }
 
+function loadExample2x3() {
+  margState = [
+    {
+      name: "A",
+      states: [
+        { p: 0.5, r: -0.1 },
+        { p: 0.5, r: 0.3 },
+      ],
+    },
+    {
+      name: "B",
+      states: [
+        { p: 0.3, r: -0.25 },
+        { p: 0.4, r: 0.08 },
+        { p: 0.3, r: 0.5 },
+      ],
+    },
+  ];
+  corrState = [
+    [1, 0.4],
+    [0.4, 1],
+  ];
+  document.getElementById("n-count").value = "2";
+  renderMultiTables();
+}
+
 function renderMultiTables() {
   const n = margState.length;
   const mb = document.getElementById("n-marg");
-  let mh = `<div class="multi-row" style="font-size:12px;color:var(--muted)">
-    <div>证券</div><div>P(涨)</div><div>r(跌)</div><div>r(涨)</div></div>`;
+  let mh = "";
   margState.forEach((m, k) => {
-    mh += `<div class="multi-row">
-      <div><strong>${m.name}</strong></div>
-      <div><input data-mg="${k},pHigh" value="${m.pHigh}" /></div>
-      <div><input data-mg="${k},rLow" value="${m.rLow}" /></div>
-      <div><input data-mg="${k},rHigh" value="${m.rHigh}" /></div>
-    </div>`;
+    const sumP = m.states.reduce((a, b) => a + (parseFloat(b.p) || 0), 0);
+    mh += `<div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong>${m.name}（${m.states.length} 态，Σp=${fmt(sumP, 4)}）</strong>
+        <span>
+          <button class="ghost" data-madd="${k}">＋ 状态</button>
+          ${m.states.length > 2 ? `<button class="ghost" data-mdelst="${k}">－ 状态</button>` : ""}
+        </span>
+      </div>`;
+    mh += `<div class="multi-row" style="font-size:12px;color:var(--muted)">
+      <div>状态</div><div>概率 p</div><div>收益率 r</div><div></div></div>`;
+    m.states.forEach((st, i) => {
+      mh += `<div class="multi-row">
+        <div>#${i + 1}</div>
+        <div><input data-mg="${k},${i},p" value="${st.p}" /></div>
+        <div><input data-mg="${k},${i},r" value="${st.r}" /></div>
+        <div></div>
+      </div>`;
+    });
+    mh += `</div>`;
   });
   mb.innerHTML = mh;
   mb.querySelectorAll("[data-mg]").forEach((inp) => {
     inp.addEventListener("change", () => {
-      const [k, key] = inp.getAttribute("data-mg").split(",");
-      margState[+k][key] = parseFloat(inp.value);
+      const [k, i, key] = inp.getAttribute("data-mg").split(",");
+      margState[+k].states[+i][key] = parseFloat(inp.value);
+    });
+  });
+  mb.querySelectorAll("[data-madd]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const k = +btn.getAttribute("data-madd");
+      margState[k].states.push({ p: 0, r: 0.1 });
+      renderMultiTables();
+    });
+  });
+  mb.querySelectorAll("[data-mdelst]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const k = +btn.getAttribute("data-mdelst");
+      margState[k].states.pop();
+      renderMultiTables();
     });
   });
 
@@ -530,7 +660,7 @@ function runMulti() {
     corrState = corr.map((r) => r.slice());
     renderMultiTables();
 
-    const joint = jointFromCopula(margState, corr, 6000, 42);
+    const joint = jointFromCopula(margState, corr, 8000, 42);
     const ind = jointIndependent(margState);
     const res = optimizeCorrelated(joint, r0, sh, lev, M);
     const resInd = optimizeCorrelated(ind, r0, sh, lev, M);
@@ -538,6 +668,7 @@ function runMulti() {
       row.portR = res.portRs[i];
     });
 
+    const dims = margState.map((m) => m.states.length);
     document.getElementById("n-out").innerHTML = `
       <div class="metric"><div class="k">H*（相关）</div><div class="v">${fmt(res.H, 4)}</div></div>
       <div class="metric"><div class="k">H*（独立对照）</div><div class="v">${fmt(resInd.H, 4)}</div></div>
@@ -546,12 +677,12 @@ function runMulti() {
       <div class="metric"><div class="k">标的合计</div><div class="v">${pct(res.assetSum)}</div></div>
       <div class="metric"><div class="k">负债</div><div class="v ${res.debt > 1e-9 ? "warn" : ""}">${pct(res.debt)}</div></div>`;
 
-    let th = "<thead><tr><th>证券</th><th>q*（相关）</th><th>q*（独立）</th></tr></thead><tbody>";
+    let th = "<thead><tr><th>证券</th><th>状态数</th><th>q*（相关）</th><th>q*（独立）</th></tr></thead><tbody>";
     margState.forEach((m, k) => {
-      th += `<tr><td>${m.name}</td><td>${fmt(res.weights[k], 4)}</td><td>${fmt(resInd.weights[k], 4)}</td></tr>`;
+      th += `<tr><td>${m.name}</td><td>${m.states.length}</td><td>${fmt(res.weights[k], 4)}</td><td>${fmt(resInd.weights[k], 4)}</td></tr>`;
     });
-    th += `<tr><td>现金</td><td>${fmt(res.cash, 4)}</td><td>${fmt(resInd.cash, 4)}</td></tr>`;
-    th += `<tr><td>负债</td><td>${fmt(res.debt, 4)}</td><td>${fmt(resInd.debt, 4)}</td></tr>`;
+    th += `<tr><td>现金</td><td></td><td>${fmt(res.cash, 4)}</td><td>${fmt(resInd.cash, 4)}</td></tr>`;
+    th += `<tr><td>负债</td><td></td><td>${fmt(res.debt, 4)}</td><td>${fmt(resInd.debt, 4)}</td></tr>`;
     th += "</tbody>";
     document.getElementById("n-weights").innerHTML = th;
 
@@ -560,7 +691,8 @@ function runMulti() {
 
     const dH = res.H - resInd.H;
     document.getElementById("n-note").innerHTML =
-      `联合情景数 ${joint.length}（2^${n}）。相对独立：ΔH = ${fmt(dH, 4)} bit` +
+      `状态数 ${dims.join("×")} = ${dims.reduce((a, b) => a * b, 1)} 格联合；相关 copula 有效情景 ${joint.length}。` +
+      `相对独立：ΔH = ${fmt(dH, 4)} bit` +
       (dH < -1e-4
         ? " —— 正相关削弱分散红利。"
         : dH > 1e-4
@@ -687,6 +819,10 @@ document.getElementById("n-count").addEventListener("change", () => {
 });
 document.getElementById("n-reset").addEventListener("click", () => {
   initMulti(3);
+  runMulti();
+});
+document.getElementById("n-example-2x3").addEventListener("click", () => {
+  loadExample2x3();
   runMulti();
 });
 document.getElementById("n-corr-zero").addEventListener("click", () => {

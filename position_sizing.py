@@ -69,61 +69,100 @@ def joint_2x2_correlated(
 def joint_from_correlation_copula(
     marginals: Sequence[dict],
     corr: Sequence[Sequence[float]],
-    n_samples: int = 6000,
+    n_samples: int = 8000,
     seed: int = 42,
 ) -> Tuple[List[float], List[List[float]]]:
     """
-    高斯 copula: 两状态边际 + 相关矩阵 → 联合情景 (近似频率).
+    高斯 copula: 各资产状态数可不同 + 相关矩阵 → 联合情景 (近似频率).
 
-    marginals[k] = {"p_high", "r_low", "r_high"}
-    corr: N×N 对称、对角 1、正定
+    marginals[k] 支持两种写法:
+      1) {"states": [{"p", "r"}, ...]}   推荐, 状态数任意
+      2) {"p_high", "r_low", "r_high"}   旧的两状态写法
 
-    Returns (probs, grid) 与 expand_joint_from_marginals 相同结构.
+    corr: N×N 对称、对角 1、正定 (失败则向单位阵收缩)
+
+    Returns (probs, grid); grid[i][k] 为第 k 资产在该联合情景的收益率.
+    联合格数 = Π n_k, 上限 400.
     """
     import numpy as np
 
-    n = len(marginals)
+    def _norm_states(m: dict) -> List[Tuple[float, float]]:
+        if m.get("states"):
+            return [(float(s["p"]), float(s["r"])) for s in m["states"]]
+        return [
+            (1.0 - float(m["p_high"]), float(m["r_low"])),
+            (float(m["p_high"]), float(m["r_high"])),
+        ]
+
+    states_list = [_norm_states(m) for m in marginals]
+    n = len(states_list)
+    dims = [len(s) for s in states_list]
+    total = 1
+    for d in dims:
+        total *= d
+    if total > 400:
+        raise ValueError(f"联合情景数 {total} 过大 (>400)")
+
     C = np.asarray(corr, dtype=float)
-    # 对称化 + 对角
     C = 0.5 * (C + C.T)
     np.fill_diagonal(C, 1.0)
-    # Cholesky; 失败则收缩
     L = None
+    Cuse = C
     for shrink in range(20):
         try:
-            L = np.linalg.cholesky(C if shrink == 0 else (1 - 0.05 * shrink) * C + (0.05 * shrink) * np.eye(n))
-            if shrink > 0:
-                C = (1 - 0.05 * shrink) * C + (0.05 * shrink) * np.eye(n)
+            Cuse = C if shrink == 0 else (1 - 0.05 * shrink) * C + (0.05 * shrink) * np.eye(n)
+            L = np.linalg.cholesky(Cuse)
             break
         except np.linalg.LinAlgError:
             continue
     if L is None:
         raise ValueError("相关矩阵非正定")
 
+    # 分位阈值
+    cuts = []
+    for sp in states_list:
+        ps = [max(0.0, p) for p, _ in sp]
+        s = sum(ps) or 1.0
+        acc = 0.0
+        c = [0.0]
+        for p in ps:
+            acc += p / s
+            c.append(min(1.0, acc))
+        c[-1] = 1.0
+        cuts.append(c)
+
     rng = np.random.default_rng(seed)
     eps = rng.standard_normal((n_samples, n))
     Z = eps @ L.T
     U = 0.5 * (1.0 + np.vectorize(math.erf)(Z / math.sqrt(2.0)))
-    states = np.zeros((n_samples, n), dtype=int)
-    for k in range(n):
-        states[:, k] = (U[:, k] > (1.0 - marginals[k]["p_high"])).astype(int)
 
     counts: dict = {}
     for i in range(n_samples):
         idx = 0
+        row_idx = []
         for k in range(n):
-            if states[i, k]:
-                idx |= 1 << k
+            u = float(U[i, k])
+            sj = dims[k] - 1
+            for j in range(dims[k]):
+                if u <= cuts[k][j + 1] + 1e-15:
+                    sj = j
+                    break
+            row_idx.append(sj)
+            idx = idx * dims[k] + sj
         counts[idx] = counts.get(idx, 0) + 1
 
     probs: List[float] = []
     grid: List[List[float]] = []
     for idx, c in sorted(counts.items()):
         p = c / n_samples
-        row = []
-        for k in range(n):
-            bit = (idx >> k) & 1
-            row.append(marginals[k]["r_high"] if bit else marginals[k]["r_low"])
+        if p <= 0:
+            continue
+        t = idx
+        tmp = [0] * n
+        for k in range(n - 1, -1, -1):
+            tmp[k] = t % dims[k]
+            t //= dims[k]
+        row = [states_list[k][tmp[k]][1] for k in range(n)]
         probs.append(p)
         grid.append(row)
     return probs, grid

@@ -1,3 +1,4 @@
+<!-- AI生成 -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -7,6 +8,8 @@
 <link rel="stylesheet" href="correlated.css" />
 </head>
 <body>
+<p data-aigc-mark="1" style="margin:0 0 8px;font-size:10px;line-height:1.3;color:#6b6560;font-weight:400;">AI生成</p>
+
 <header>
   <h1>相关性下的最大增值熵</h1>
   <p>多证券收益相关时，相关性进入的是<strong>联合分布 P(r₁,…,rₙ)</strong>，目标函数仍是 max H = Σ Pᵢ log(Σ q R)。本页从两证券精确 2×2 联合表，到多证券相关矩阵 + 高斯 copula 展开。</p>
@@ -75,9 +78,10 @@ H = Σᵢ Pᵢ log₂( q₀R₀ + qₐRᵢₐ + qᵦRᵢᵦ )</div>
   <!-- ============ 多证券 ============ -->
   <section class="panel" id="panel-multi">
     <h2>多证券：相关矩阵 + 高斯 Copula</h2>
-    <p class="sub">每种证券两状态；相关矩阵 R 须对称、对角为 1。用高斯 copula（Cholesky + 正态边缘）生成 2ⁿ 联合概率，再求最优仓位。</p>
-    <div class="formula">Z ~ N(0, R)  →  Uₖ=Φ(Zₖ)  →  状态ₖ = 涨 若 Uₖ > 1−pₖ
-P(联合) ≈ 频率(大样本，固定种子) 或 2 证券精确式
+    <p class="sub">每种证券<strong>状态数可不同</strong>（如 A 2 态、B 3 态）；相关矩阵 R 须对称、对角为 1。用高斯 copula（分位阈值）生成联合概率，再求最优仓位。</p>
+    <div class="formula">Z ~ N(0, R)  →  Uₖ=Φ(Zₖ)  →  状态ₖ = j  若 cutₖ[j] &lt; Uₖ ≤ cutₖ[j+1]
+  cut 由各资产状态概率的累积分布给出
+P(联合) ≈ 频率(固定种子大样本)；格数 = Πₖ nₖ
 max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
 
     <div class="row">
@@ -89,10 +93,11 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
       <label class="check"><input type="checkbox" id="n-lev" /> 允许透支</label>
       <label class="check"><input type="checkbox" id="n-short" /> 允许卖空</label>
       <button class="primary" id="n-run">展开联合分布并求解</button>
+      <button class="ghost" id="n-example-2x3">载入 2×3 示例</button>
       <button class="ghost" id="n-reset">重置示例</button>
     </div>
 
-    <h3 style="font-size:15px;margin:12px 0 6px">各证券边际（两状态）</h3>
+    <h3 style="font-size:15px;margin:12px 0 6px">各证券边际（状态数可不同）</h3>
     <div class="multi-rows" id="n-marg"></div>
 
     <h3 style="font-size:15px;margin:12px 0 6px">相关矩阵 R（对称，对角=1）</h3>
@@ -134,8 +139,8 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
       <thead><tr><th>层次</th><th>做法</th><th>适用</th></tr></thead>
       <tbody>
         <tr><td>两证券·两状态</td><td>Bernoulli 精确 2×2：P(HH)=pₐpᵦ+ρσₐσᵦ</td><td>本页「两证券」</td></tr>
-        <tr><td>两证券·多状态</td><td>用户直接给联合表，或 copula</td><td>主计算器联合表</td></tr>
-        <tr><td>多证券</td><td>相关矩阵 + 高斯 copula → 2ⁿ 联合频率</td><td>本页「多证券」</td></tr>
+        <tr><td>两证券·多状态 / 状态数不同</td><td>高斯 copula 分位阈值（如 2×3）</td><td>本页「多证券」</td></tr>
+        <tr><td>多证券</td><td>相关矩阵 + 高斯 copula → Π nₖ 联合频率</td><td>本页「多证券」</td></tr>
         <tr><td>书中 §3.8 近似</td><td>h=Σ qₖ(aₖ…cₖⱼ…)+…，相关进 dₖⱼcₖⱼ</td><td>快速近似（抛物线页）</td></tr>
       </tbody>
     </table>
