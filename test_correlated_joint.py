@@ -267,6 +267,26 @@ def main() -> int:
                 failures += 1
             check(f"文档含「{key}」", ok)
 
+    print("\n[8] index.html 方法说明选项卡含三种求解方法")
+    idx = ROOT / "index.html"
+    if not idx.exists():
+        failures += 1
+        check("index.html 存在", False)
+    else:
+        html = idx.read_text(encoding="utf-8")
+        for key in [
+            "坐标爬山",
+            "解析梯度精修",
+            "近似初值",
+            "SLSQP",
+            "方法说明",
+            "凹函数",
+        ]:
+            ok = key in html
+            if not ok:
+                failures += 1
+            check(f"方法说明含「{key}」", ok)
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)

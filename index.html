@@ -165,8 +165,61 @@ s.t.  Σ q = 1,  qₖ ≥ 0（或允许卖空/透支）
   相关:  P 由联合表 / copula 生成
   ρ↑  → 同涨同跌变多 → 分散红利↓ → 几何增长↓
   ρ↓  → 对冲变强 → 可提高总仓位与 H</div>
+
+    <h2 style="margin-top:22px">三种求解方法说明</h2>
+    <p class="sub">目标都是 max H。因 H 对 q 为<strong>凹函数</strong>，局部最优 = 全局最优；差别在收敛路径与速度。</p>
+    <table>
+      <thead>
+        <tr><th>方法</th><th>思路</th><th>优点</th><th>注意</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>坐标爬山</b></td>
+          <td>多起点（零点 / 单资产扫描 / 等权 / 随机）+ 逐维微调，步长减半直至收敛</td>
+          <td>不依赖梯度，实现稳健，好解释</td>
+          <td>起点少时易卡角点（如全押一个资产）；现已多起点加强</td>
+        </tr>
+        <tr>
+          <td><b>解析梯度精修</b></td>
+          <td>∂H/∂qₖ = Σᵢ Pᵢ Δᵢₖ /(Rᵢ ln2)，投影梯度上升 + 线搜索</td>
+          <td>凹问题下可视为全局峰；高维更快</td>
+          <td>梯度很小的区域需归一化步长（已处理）</td>
+        </tr>
+        <tr>
+          <td><b>§3.8 近似初值 + 梯度</b></td>
+          <td>对每个资产单独抛物线拟合 H(qₖ) 得初值，再梯度精修</td>
+          <td>收敛快，适合资产多、要反复调参</td>
+          <td>初值偏差大时仍靠精修纠正</td>
+        </tr>
+        <tr>
+          <td>Python <b>SLSQP</b>（对照）</td>
+          <td>scipy.optimize 凸优化，解析雅可比</td>
+          <td><b>准确性最高</b>，有全局最优保证</td>
+          <td>在 position_sizing.py，不在网页内</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="formula">准确性排序（凹问题）：
+  SLSQP (Python)  ≥  解析梯度 ≈ §3.8初值+梯度  ≥  坐标爬山(多起点)  >  坐标爬山(单起点·旧版)
+
+三种方法 H 对不齐时：
+  取「H 更大且 Σq、约束合法」的一组 = 全局最优
+ρ = 0 时相关列与独立列应完全一致（已走精确独立，无 MC 噪声）</div>
+
+    <h3 style="font-size:15px;margin:14px 0 6px">和书中公式的关系</h3>
+    <table>
+      <thead><tr><th>书中</th><th>用在哪</th></tr></thead>
+      <tbody>
+        <tr><td>§3.1 最大增值熵</td><td>一切方法的统一目标</td></tr>
+        <tr><td>§3.2 单硬币闭式</td><td>两状态单资产；可校验 SLSQP / 梯度</td></tr>
+        <tr><td>§3.8 抛物线近似</td><td>「近似初值」的来源</td></tr>
+        <tr><td>§2.5 相关性</td><td>联合分布构造（本页 copula）</td></tr>
+      </tbody>
+    </table>
+
     <div class="note">
       风险提示：ρ 由历史估计时应使用区间或情景压力；两两相关 ≠ 完整依赖结构（尾部相关可能更大）。
+      本工具为理论/教学实现，不构成投资建议。
     </div>
   </section>
 </main>
