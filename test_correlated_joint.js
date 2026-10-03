@@ -25,6 +25,8 @@ const code = [
   grab("portReturns"),
   grab("growthEntropy"),
   grab("optimizeCorrelated"),
+  grab("solveCorrelated"),
+  grab("compareCorrelated"),
 ].join("\n");
 
 eval(code);
@@ -104,6 +106,28 @@ const o23 = optimizeCorrelated(j23, 0, false, false, 1);
 check("2×3 可优化", isFinite(o23.H), `H=${o23.H.toFixed(6)}`);
 const i23 = jointIndependent(m23);
 check("2×3 独立 6 格", i23.length === 6, String(i23.length));
+
+// 三种求解方法
+if (typeof solveCorrelated === "function" && typeof compareCorrelated === "function") {
+  const rh = solveCorrelated(j23, 0, false, true, 5, "hill");
+  const rg = solveCorrelated(j23, 0, false, true, 5, "grad");
+  const rw = solveCorrelated(j23, 0, false, true, 5, "warm");
+  check("hill 可跑", isFinite(rh.H), `H=${rh.H.toFixed(6)}`);
+  check("grad 可跑", isFinite(rg.H), `H=${rg.H.toFixed(6)}`);
+  check("warm 可跑", isFinite(rw.H), `H=${rw.H.toFixed(6)}`);
+  const Hs = [rh.H, rg.H, rw.H];
+  check("三方法 H 接近", Math.max(...Hs) - Math.min(...Hs) < 5e-3, Hs.map((x) => x.toFixed(6)).join(","));
+  const cmp = compareCorrelated(j23, 0, false, true, 5);
+  check("compare 三结果", cmp.results.length === 3, cmp.best);
+  // ρ=0 时三方法应一致（精确独立）
+  const j0 = jointFromCopula(m23, [[1, 0], [0, 1]], 8000, 42);
+  const g0 = solveCorrelated(j0, 0, false, true, 5, "grad");
+  const i0 = solveCorrelated(jointIndependent(m23), 0, false, true, 5, "grad");
+  const dq = Math.max(...g0.weights.map((x, k) => Math.abs(x - i0.weights[k])));
+  check("ρ=0 三方法口径下 q* 一致", dq < 1e-9, `Δq=${dq}`);
+} else {
+  check("solveCorrelated 已导出", false);
+}
 
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
 process.exit(fail ? 1 : 0);

@@ -286,6 +286,16 @@ function growthEntropy(probs, returns) {
 }
 
 function optimizeCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
+  return solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple, "grad");
+}
+
+/**
+ * 统一求解入口。method:
+ *   hill  坐标爬山
+ *   grad  解析梯度精修（从零点）
+ *   warm  §3.8 抛物线初值 + 梯度
+ */
+function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method = "grad") {
   const W = rows.length;
   const N = rows[0].returns.length;
   let P = rows.map((r) => r.p);
@@ -311,36 +321,6 @@ function optimizeCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
     }
     return H;
   }
-
-  // 单资产扫描 + 坐标爬山
-  let best = new Array(N).fill(0);
-  let bestH = H_of(best);
-  for (let k = 0; k < N; k++) {
-    for (let t = 0; t <= 30; t++) {
-      const q = new Array(N).fill(0);
-      q[k] = lo + (hi - lo) * (t / 30);
-      const h = H_of(q);
-      if (h > bestH) {
-        bestH = h;
-        best = q.slice();
-      }
-    }
-  }
-  // 梯度精修
-  function grad(q) {
-    const g = new Array(N).fill(0);
-    for (let i = 0; i < W; i++) {
-      let portR = 1 - q.reduce((a, b) => a + b, 0);
-      portR = (1 - q.reduce((a, b) => a + b, 0)) * R0;
-      for (let k = 0; k < N; k++) portR += q[k] * (1 + rows[i].returns[k]);
-      if (portR <= 0) return null;
-      for (let k = 0; k < N; k++) {
-        const D = 1 + rows[i].returns[k] - R0;
-        g[k] += (P[i] * D) / (portR * Math.LN2);
-      }
-    }
-    return g;
-  }
   function project(q) {
     q = q.map((x) => Math.max(lo, Math.min(hi, x)));
     const qs = q.reduce((a, b) => a + b, 0);
@@ -350,44 +330,143 @@ function optimizeCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
     }
     return q;
   }
-  let q = project(best.slice());
-  bestH = H_of(q);
-  best = q.slice();
-  let step = Math.max(0.5, hi - lo);
-  for (let it = 0; it < 300; it++) {
-    const g = grad(q);
-    if (!g) break;
-    const gmax = Math.max(...g.map(Math.abs), 1e-15);
-    const dir = g.map((x) => x / gmax);
-    let improved = false;
-    for (const sc of [step, step * 0.5, step * 0.25, step * 0.125]) {
-      const cand = project(q.map((x, k) => x + sc * dir[k]));
-      const h = H_of(cand);
-      if (h > bestH + 1e-14) {
-        q = cand;
-        best = cand.slice();
-        bestH = h;
-        improved = true;
-        break;
+  function grad(q) {
+    const g = new Array(N).fill(0);
+    for (let i = 0; i < W; i++) {
+      let portR = (1 - q.reduce((a, b) => a + b, 0)) * R0;
+      for (let k = 0; k < N; k++) portR += q[k] * (1 + rows[i].returns[k]);
+      if (portR <= 0) return null;
+      for (let k = 0; k < N; k++) {
+        const D = 1 + rows[i].returns[k] - R0;
+        g[k] += (P[i] * D) / (portR * Math.LN2);
       }
     }
-    if (!improved) {
-      step *= 0.5;
-      if (step < 1e-5) break;
-    }
+    return g;
   }
-  const qs = best.reduce((a, b) => a + b, 0);
+  function hillClimb(start) {
+    let best = project(start ? start.slice() : new Array(N).fill(0));
+    let bestH = H_of(best);
+    // 单资产粗扫
+    for (let k = 0; k < N; k++) {
+      for (let t = 0; t <= 30; t++) {
+        const q = new Array(N).fill(0);
+        q[k] = lo + (hi - lo) * (t / 30);
+        const h = H_of(q);
+        if (h > bestH) {
+          bestH = h;
+          best = q.slice();
+        }
+      }
+    }
+    let step = 0.12;
+    for (let it = 0; it < 120; it++) {
+      let improved = false;
+      for (let k = 0; k < N; k++) {
+        for (const dir of [step, -step]) {
+          const q = best.slice();
+          q[k] = Math.max(lo, Math.min(hi, q[k] + dir));
+          const qs = q.reduce((a, b) => a + b, 0);
+          if (qs > sumMax + 1e-12) continue;
+          const h = H_of(q);
+          if (h > bestH + 1e-12) {
+            bestH = h;
+            best = q;
+            improved = true;
+          }
+        }
+      }
+      if (!improved) {
+        step *= 0.5;
+        if (step < 1e-4) break;
+      }
+    }
+    return { q: best, H: bestH };
+  }
+  function gradRefine(start) {
+    let q = project(start ? start.slice() : new Array(N).fill(0));
+    let best = q.slice();
+    let bestH = H_of(q);
+    let step = Math.max(0.5, hi - lo);
+    let nit = 0;
+    for (; nit < 400; nit++) {
+      const g = grad(q);
+      if (!g) break;
+      const gmax = Math.max(...g.map(Math.abs), 1e-15);
+      const dir = g.map((x) => x / gmax);
+      let improved = false;
+      for (const sc of [step, step * 0.5, step * 0.25, step * 0.125]) {
+        const cand = project(q.map((x, k) => x + sc * dir[k]));
+        const h = H_of(cand);
+        if (h > bestH + 1e-14) {
+          q = cand;
+          best = cand.slice();
+          bestH = h;
+          improved = true;
+          break;
+        }
+      }
+      if (!improved) {
+        step *= 0.5;
+        if (step < 1e-5) break;
+      }
+    }
+    return { q: best, H: bestH, nit };
+  }
+  /** §3.8 单资产抛物线 → 初值 */
+  function approxWarmstart(t = 0.5) {
+    const qInit = new Array(N).fill(0);
+    for (let k = 0; k < N; k++) {
+      const one = (x) => {
+        const q = new Array(N).fill(0);
+        q[k] = x;
+        return H_of(q);
+      };
+      const ts = [t, Math.min(hi, 1), Math.min(hi, Math.max(t, hi / 2))];
+      let bestQ = 0;
+      let bestOne = one(0);
+      for (const tt of [...new Set(ts)]) {
+        if (!(tt > 0)) continue;
+        const H0 = one(0), Ht2 = one(tt / 2), Ht = one(tt);
+        if (!(isFinite(H0) && isFinite(Ht2) && isFinite(Ht))) continue;
+        const a = 2 * (Ht - 2 * Ht2 + H0) / (tt * tt);
+        const b = (4 * Ht2 - Ht - 3 * H0) / tt;
+        let x = a === 0 ? 0 : -b / (2 * a);
+        x = Math.max(lo, Math.min(hi, x));
+        const h = one(x);
+        if (h > bestOne) {
+          bestOne = h;
+          bestQ = x;
+        }
+      }
+      qInit[k] = bestQ;
+    }
+    return project(qInit);
+  }
+
+  let out;
+  let label = method;
+  if (method === "hill") {
+    const h = hillClimb(new Array(N).fill(0));
+    out = h;
+    label = "坐标爬山";
+  } else if (method === "warm") {
+    const x0 = approxWarmstart(0.5);
+    const g = gradRefine(x0);
+    out = g;
+    label = "§3.8初值+梯度";
+    out.warmstart = x0;
+  } else {
+    const g = gradRefine(new Array(N).fill(0));
+    out = g;
+    label = "解析梯度精修";
+  }
+
+  const qs = out.q.reduce((a, b) => a + b, 0);
   const q0 = 1 - qs;
-  const sp = {
-    cash: Math.max(0, q0),
-    debt: Math.max(0, -q0),
-    assetSum: qs,
-    cashRaw: q0,
-  };
   const portRs = [];
   for (let i = 0; i < W; i++) {
     let R = q0 * R0;
-    for (let k = 0; k < N; k++) R += best[k] * (1 + rows[i].returns[k]);
+    for (let k = 0; k < N; k++) R += out.q[k] * (1 + rows[i].returns[k]);
     portRs.push(R - 1);
   }
   const H = growthEntropy(P, portRs);
@@ -401,16 +480,29 @@ function optimizeCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
     logRg += P[i] * Math.log(1 + portRs[i]);
   }
   return {
-    weights: best,
-    cash: sp.cash,
-    debt: sp.debt,
-    assetSum: sp.assetSum,
-    cashRaw: sp.cashRaw,
+    weights: out.q.slice(),
+    cash: Math.max(0, q0),
+    debt: Math.max(0, -q0),
+    assetSum: qs,
+    cashRaw: q0,
     H,
     rg: ok ? Math.exp(logRg) - 1 : -1,
     portRs,
+    method: label,
+    nit: out.nit != null ? out.nit : "—",
+    warmstart: out.warmstart,
   };
 }
+
+/** 三方法对比 */
+function compareCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
+  const methods = ["hill", "grad", "warm"];
+  const results = methods.map((m) => solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple, m));
+  const ranked = results.slice().sort((a, b) => (b.H || -Infinity) - (a.H || -Infinity));
+  return { results, ranking: ranked.map((r) => r.method), best: ranked[0].method };
+}
+
+/* ===================== UI 多证券 runMulti ===================== */
 
 /* ===================== UI ===================== */
 
@@ -671,6 +763,7 @@ function runMulti() {
     const lev = document.getElementById("n-lev").checked;
     const sh = document.getElementById("n-short").checked;
     const M = num("n-M") || 1;
+    const method = document.getElementById("n-method").value || "grad";
     const n = margState.length;
     const corr = projectCorrPSD(corrState, n);
     corrState = corr.map((r) => r.slice());
@@ -678,8 +771,8 @@ function runMulti() {
 
     const joint = jointFromCopula(margState, corr, 8000, 42);
     const ind = jointIndependent(margState);
-    const res = optimizeCorrelated(joint, r0, sh, lev, M);
-    const resInd = optimizeCorrelated(ind, r0, sh, lev, M);
+    const res = solveCorrelated(joint, r0, sh, lev, M, method);
+    const resInd = solveCorrelated(ind, r0, sh, lev, M, method);
     joint.forEach((row, i) => {
       row.portR = res.portRs[i];
     });
@@ -691,7 +784,8 @@ function runMulti() {
       <div class="metric"><div class="k">几何平均</div><div class="v">${pct(res.rg)}</div></div>
       <div class="metric"><div class="k">现金</div><div class="v">${pct(res.cash)}</div></div>
       <div class="metric"><div class="k">标的合计</div><div class="v">${pct(res.assetSum)}</div></div>
-      <div class="metric"><div class="k">负债</div><div class="v ${res.debt > 1e-9 ? "warn" : ""}">${pct(res.debt)}</div></div>`;
+      <div class="metric"><div class="k">负债</div><div class="v ${res.debt > 1e-9 ? "warn" : ""}">${pct(res.debt)}</div></div>
+      <div class="metric"><div class="k">方法</div><div class="v" style="font-size:14px">${res.method}</div></div>`;
 
     let th = "<thead><tr><th>证券</th><th>状态数</th><th>q*（相关）</th><th>q*（独立）</th></tr></thead><tbody>";
     margState.forEach((m, k) => {
@@ -704,16 +798,67 @@ function runMulti() {
 
     const top = joint.slice(0, 16);
     fillJointTable(document.getElementById("n-joint"), top, n);
+    document.getElementById("n-compare-wrap").style.display = "none";
 
     const dH = res.H - resInd.H;
     document.getElementById("n-note").innerHTML =
       `状态数 ${dims.join("×")} = ${dims.reduce((a, b) => a * b, 1)} 格联合；相关 copula 有效情景 ${joint.length}。` +
-      `相对独立：ΔH = ${fmt(dH, 4)} bit` +
+      `方法：<b>${res.method}</b>。相对独立：ΔH = ${fmt(dH, 4)} bit` +
       (dH < -1e-4
         ? " —— 正相关削弱分散红利。"
         : dH > 1e-4
         ? " —— 负相关增强对冲，几何增长更好。"
         : " —— 与独立接近。");
+  } catch (e) {
+    document.getElementById("n-note").textContent = "错误: " + e.message;
+  }
+}
+
+function runMultiCompare() {
+  try {
+    const r0 = num("n-r0") || 0;
+    const lev = document.getElementById("n-lev").checked;
+    const sh = document.getElementById("n-short").checked;
+    const M = num("n-M") || 1;
+    const n = margState.length;
+    const corr = projectCorrPSD(corrState, n);
+    corrState = corr.map((r) => r.slice());
+    renderMultiTables();
+    const joint = jointFromCopula(margState, corr, 8000, 42);
+    const cmp = compareCorrelated(joint, r0, sh, lev, M);
+
+    let th = "<thead><tr><th>方法</th><th>H (bit)</th>";
+    margState.forEach((m) => (th += `<th>${m.name}</th>`));
+    th += "<th>现金</th><th>负债</th><th>ΔH</th></tr></thead><tbody>";
+    const bestH = cmp.results[0].H;
+    const sorted = cmp.results.slice().sort((a, b) => (b.H || -Infinity) - (a.H || -Infinity));
+    sorted.forEach((r) => {
+      th += `<tr><td>${r.method}</td><td>${fmt(r.H, 6)}</td>`;
+      r.weights.forEach((q) => (th += `<td>${fmt(q, 4)}</td>`));
+      th += `<td>${fmt(r.cash, 4)}</td><td>${fmt(r.debt, 4)}</td>`;
+      th += `<td>${fmt(bestH - r.H, 6)}</td></tr>`;
+    });
+    th += "</tbody>";
+    document.getElementById("n-compare-table").innerHTML = th;
+    document.getElementById("n-compare-wrap").style.display = "block";
+    document.getElementById("n-note").innerHTML =
+      `凸问题下三种方法应接近或相同；最优为 <b>${sorted[0].method}</b>（H=${fmt(sorted[0].H, 6)}）。`;
+    // 同步展示最优
+    const best = sorted[0];
+    document.getElementById("n-out").innerHTML = `
+      <div class="metric"><div class="k">H*（对比最优）</div><div class="v">${fmt(best.H, 4)}</div></div>
+      <div class="metric"><div class="k">几何平均</div><div class="v">${pct(best.rg)}</div></div>
+      <div class="metric"><div class="k">现金</div><div class="v">${pct(best.cash)}</div></div>
+      <div class="metric"><div class="k">标的合计</div><div class="v">${pct(best.assetSum)}</div></div>
+      <div class="metric"><div class="k">负债</div><div class="v ${best.debt > 1e-9 ? "warn" : ""}">${pct(best.debt)}</div></div>
+      <div class="metric"><div class="k">方法</div><div class="v" style="font-size:14px">${best.method}</div></div>`;
+    let th2 = "<thead><tr><th>证券</th><th>q*</th></tr></thead><tbody>";
+    margState.forEach((m, k) => {
+      th2 += `<tr><td>${m.name}</td><td>${fmt(best.weights[k], 4)}</td></tr>`;
+    });
+    th2 += `<tr><td>现金</td><td>${fmt(best.cash, 4)}</td></tr>`;
+    th2 += `<tr><td>负债</td><td>${fmt(best.debt, 4)}</td></tr></tbody>`;
+    document.getElementById("n-weights").innerHTML = th2;
   } catch (e) {
     document.getElementById("n-note").textContent = "错误: " + e.message;
   }
@@ -821,6 +966,7 @@ document.querySelectorAll("[data-preset]").forEach((btn) => {
 });
 
 document.getElementById("n-run").addEventListener("click", runMulti);
+document.getElementById("n-compare").addEventListener("click", runMultiCompare);
 document.getElementById("n-add").addEventListener("click", () => {
   initMulti(margState.length + 1);
   runMulti();
