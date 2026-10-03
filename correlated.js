@@ -344,40 +344,66 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
     return g;
   }
   function hillClimb(start) {
-    let best = project(start ? start.slice() : new Array(N).fill(0));
-    let bestH = H_of(best);
-    // 单资产粗扫
+    // 多起点: 0、单资产扫描最优、给定 start、若干随机点 → 再坐标爬山
+    const starts = [project(start ? start.slice() : new Array(N).fill(0))];
+    let scanBest = new Array(N).fill(0);
+    let scanH = H_of(scanBest);
     for (let k = 0; k < N; k++) {
       for (let t = 0; t <= 30; t++) {
         const q = new Array(N).fill(0);
         q[k] = lo + (hi - lo) * (t / 30);
         const h = H_of(q);
-        if (h > bestH) {
-          bestH = h;
-          best = q.slice();
+        if (h > scanH) {
+          scanH = h;
+          scanBest = q.slice();
         }
       }
     }
-    let step = 0.12;
-    for (let it = 0; it < 120; it++) {
-      let improved = false;
-      for (let k = 0; k < N; k++) {
-        for (const dir of [step, -step]) {
-          const q = best.slice();
-          q[k] = Math.max(lo, Math.min(hi, q[k] + dir));
-          const qs = q.reduce((a, b) => a + b, 0);
-          if (qs > sumMax + 1e-12) continue;
-          const h = H_of(q);
-          if (h > bestH + 1e-12) {
-            bestH = h;
-            best = q;
-            improved = true;
+    starts.push(project(scanBest));
+    // 等权可行点
+    const eq = new Array(N).fill(0).map(() => Math.min(hi, sumMax / N));
+    starts.push(project(eq));
+    // 伪随机多起点 (LCG, 可复现)
+    let s = 12345;
+    const rnd = () => {
+      s = (1664525 * s + 1013904223) >>> 0;
+      return s / 4294967296;
+    };
+    for (let t = 0; t < 12; t++) {
+      const q = new Array(N).fill(0).map(() => lo + rnd() * (hi - lo));
+      starts.push(project(q));
+    }
+
+    let best = starts[0];
+    let bestH = H_of(best);
+    for (const st of starts) {
+      let q = project(st.slice());
+      let h = H_of(q);
+      let step = 0.15;
+      for (let it = 0; it < 150; it++) {
+        let improved = false;
+        for (let k = 0; k < N; k++) {
+          for (const dir of [step, -step, step * 0.5, -step * 0.5]) {
+            const cand = q.slice();
+            cand[k] = Math.max(lo, Math.min(hi, cand[k] + dir));
+            const qs = cand.reduce((a, b) => a + b, 0);
+            if (qs > sumMax + 1e-12) continue;
+            const hh = H_of(cand);
+            if (hh > h + 1e-12) {
+              h = hh;
+              q = cand;
+              improved = true;
+            }
           }
         }
+        if (!improved) {
+          step *= 0.5;
+          if (step < 1e-4) break;
+        }
       }
-      if (!improved) {
-        step *= 0.5;
-        if (step < 1e-4) break;
+      if (h > bestH) {
+        bestH = h;
+        best = q.slice();
       }
     }
     return { q: best, H: bestH };

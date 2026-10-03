@@ -1255,33 +1255,48 @@ function optimizePortfolio(probs, grid, r0, allowShort, allowLev, maxMultiple = 
     }
     return H;
   }
-  // random + coordinate ascent
+  // 多起点 + 坐标爬山 (避免卡在角点局部最优)
   let best = new Array(N).fill(0);
   let bestH = H_of(best);
-  // single asset scan
+  const starts = [new Array(N).fill(0)];
+  // 单资产扫描
   for (let k = 0; k < N; k++) {
-    for (let t = 0; t <= 40; t++) {
-      const qk = lo + (hi - lo) * t / 40;
+    for (let t = 0; t <= 30; t++) {
       const q = new Array(N).fill(0);
-      q[k] = qk;
+      q[k] = lo + (hi - lo) * t / 30;
       const h = H_of(q);
       if (h > bestH) { bestH = h; best = q.slice(); }
     }
   }
-  let step = 0.1;
-  for (let iter = 0; iter < 120; iter++) {
-    let improved = false;
-    for (let k = 0; k < N; k++) {
-      for (const dir of [step, -step]) {
-        const q = best.slice();
-        q[k] = Math.max(lo, Math.min(hi, q[k] + dir));
-        const qs = q.reduce((a, b) => a + b, 0);
-        if (qs > sumMax + 1e-12) continue;
-        const h = H_of(q);
-        if (h > bestH + 1e-12) { bestH = h; best = q; improved = true; }
+  starts.push(best.slice());
+  starts.push(new Array(N).fill(0).map(() => Math.min(hi, sumMax / N)));
+  let s = 42;
+  const rnd = () => { s = (1664525 * s + 1013904223) >>> 0; return s / 4294967296; };
+  for (let t = 0; t < 12; t++) {
+    const q = new Array(N).fill(0).map(() => lo + rnd() * (hi - lo));
+    let qs = q.reduce((a, b) => a + b, 0);
+    if (qs > sumMax && qs > 0) q.forEach((x, i) => (q[i] = x * (sumMax / qs)));
+    starts.push(q);
+  }
+  for (const st of starts) {
+    let q = st.slice().map((x) => Math.max(lo, Math.min(hi, x)));
+    let h = H_of(q);
+    let step = 0.15;
+    for (let iter = 0; iter < 150; iter++) {
+      let improved = false;
+      for (let k = 0; k < N; k++) {
+        for (const dir of [step, -step, step * 0.5, -step * 0.5]) {
+          const cand = q.slice();
+          cand[k] = Math.max(lo, Math.min(hi, cand[k] + dir));
+          const qs = cand.reduce((a, b) => a + b, 0);
+          if (qs > sumMax + 1e-12) continue;
+          const hh = H_of(cand);
+          if (hh > h + 1e-12) { h = hh; q = cand; improved = true; }
+        }
       }
+      if (!improved) { step *= 0.5; if (step < 1e-4) break; }
     }
-    if (!improved) { step *= 0.5; if (step < 1e-4) break; }
+    if (h > bestH) { bestH = h; best = q; }
   }
   const q0 = 1 - best.reduce((a, b) => a + b, 0);
   const weights = [q0, ...best];
