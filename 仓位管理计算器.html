@@ -1272,10 +1272,17 @@ function optimizePortfolio(probs, grid, r0, allowShort, allowLev, maxMultiple = 
   starts.push(new Array(N).fill(0).map(() => Math.min(hi, sumMax / N)));
   let s = 42;
   const rnd = () => { s = (1664525 * s + 1013904223) >>> 0; return s / 4294967296; };
-  for (let t = 0; t < 12; t++) {
+  for (let t = 0; t < 24; t++) {
     const q = new Array(N).fill(0).map(() => lo + rnd() * (hi - lo));
+    // 随机点覆盖单纯形内部与边界
+    const scale = 0.25 + 0.75 * rnd();
     let qs = q.reduce((a, b) => a + b, 0);
-    if (qs > sumMax && qs > 0) q.forEach((x, i) => (q[i] = x * (sumMax / qs)));
+    if (qs > 1e-12) {
+      const target = sumMax * scale;
+      for (let i = 0; i < N; i++) q[i] *= target / qs;
+    }
+    let qs2 = q.reduce((a, b) => a + b, 0);
+    if (qs2 > sumMax && qs2 > 0) q.forEach((x, i) => (q[i] = x * (sumMax / qs2)));
     starts.push(q);
   }
   for (const st of starts) {
@@ -1295,6 +1302,45 @@ function optimizePortfolio(probs, grid, r0, allowShort, allowLev, maxMultiple = 
         }
       }
       if (!improved) { step *= 0.5; if (step < 1e-4) break; }
+    }
+    if (h > bestH) { bestH = h; best = q; }
+  }
+  // 爬山后做短程梯度抛光，确保凹问题到达全局峰
+  {
+    const project = (q) => {
+      let qq = q.map((x) => Math.max(lo, Math.min(hi, x)));
+      const s = qq.reduce((a, b) => a + b, 0);
+      if (s > sumMax && s > 0) {
+        const k = sumMax / s;
+        qq = qq.map((x) => Math.max(lo, Math.min(hi, x * k)));
+      }
+      return qq;
+    };
+    let q = best.slice();
+    let h = bestH;
+    let step = Math.max(0.4, hi - lo) * 0.5;
+    for (let it = 0; it < 80; it++) {
+      // 数值梯度抛光
+      const g = new Array(N).fill(0);
+      let ok = true;
+      for (let k = 0; k < N; k++) {
+        const e = 1e-4;
+        const qp = q.slice(), qm = q.slice();
+        qp[k] = Math.min(hi, q[k] + e);
+        qm[k] = Math.max(lo, q[k] - e);
+        const hp = H_of(qp), hm = H_of(qm);
+        if (!isFinite(hp) || !isFinite(hm)) { ok = false; break; }
+        g[k] = (hp - hm) / (2 * e);
+      }
+      if (!ok) break;
+      const gmax = Math.max(...g.map(Math.abs), 1e-15);
+      let improved = false;
+      for (const sc of [step, step * 0.4, step * 0.16]) {
+        const cand = project(q.map((x, k) => x + sc * g[k] / gmax));
+        const hh = H_of(cand);
+        if (hh > h + 1e-13) { q = cand; h = hh; improved = true; break; }
+      }
+      if (!improved) { step *= 0.5; if (step < 1e-5) break; }
     }
     if (h > bestH) { bestH = h; best = q; }
   }
@@ -1439,27 +1485,42 @@ function approxWarmstart(probs, grid, r0, t, hi = 1) {
 }
 
 function solveMultiMethod(method, probs, grid, r0, sh, lev, maxMultiple = 1) {
+  const N = grid[0].length;
+  const zeros = new Array(N).fill(0);
+  // 凹问题: 各方法都用解析梯度抛光到全局峰，避免因停点不同导致结果分叉
+  const polishTo = (q0, label, extra) => {
+    const a = gradRefine(probs, grid, r0, q0, sh, lev, maxMultiple);
+    const b = gradRefine(probs, grid, r0, zeros, sh, lev, maxMultiple);
+    const best = a.H >= b.H ? a : b;
+    const q = best.weights;
+    const q0c = 1 - q.reduce((x, y) => x + y, 0);
+    return {
+      weights: [q0c, ...q], H: best.H, rg: null, ra: null, portRs: [],
+      method: label, nit: best.iterations, ...extra,
+    };
+  };
   if (method === "hill") {
-    const r = optimizePortfolio(probs, grid, r0, sh, lev, maxMultiple);
-    return { ...r, method: "坐标爬山", nit: "—" };
+    const r0s = optimizePortfolio(probs, grid, r0, sh, lev, maxMultiple);
+    const start = r0s.weights.slice(1);
+    const a = gradRefine(probs, grid, r0, start, sh, lev, maxMultiple);
+    const b = gradRefine(probs, grid, r0, zeros, sh, lev, maxMultiple);
+    const pick = a.H >= b.H ? a : b;
+    if (pick.H > r0s.H + 1e-12) {
+      const q = pick.weights;
+      const q0 = 1 - q.reduce((x, y) => x + y, 0);
+      return {
+        weights: [q0, ...q], H: pick.H, rg: null, ra: null, portRs: [],
+        method: "坐标爬山+抛光", nit: pick.iterations,
+      };
+    }
+    return { ...r0s, method: "坐标爬山", nit: "—" };
   }
   if (method === "grad") {
-    const r = gradRefine(probs, grid, r0, new Array(grid[0].length).fill(0), sh, lev, maxMultiple);
-    const q = r.weights, q0 = 1 - q.reduce((a, b) => a + b, 0);
-    return {
-      weights: [q0, ...q], H: r.H, rg: null, ra: null, portRs: [],
-      method: "解析梯度精修", nit: r.iterations,
-    };
+    return polishTo(zeros, "解析梯度精修");
   }
-  // warm
   const hi = lev ? maxMultiple : 1;
   const x0 = approxWarmstart(probs, grid, r0, 0.5, hi);
-  const r = gradRefine(probs, grid, r0, x0, sh, lev, maxMultiple);
-  const q = r.weights, q0 = 1 - q.reduce((a, b) => a + b, 0);
-  return {
-    weights: [q0, ...q], H: r.H, rg: null, ra: null, portRs: [],
-    method: "§3.8初值+梯度", nit: r.iterations, warmstart: x0,
-  };
+  return polishTo(x0, "§3.8初值+梯度", { warmstart: x0 });
 }
 
 /**

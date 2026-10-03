@@ -363,14 +363,20 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
     // 等权可行点
     const eq = new Array(N).fill(0).map(() => Math.min(hi, sumMax / N));
     starts.push(project(eq));
-    // 伪随机多起点 (LCG, 可复现)
+    // 伪随机多起点 (LCG, 可复现) — 覆盖单纯形内部与边界
     let s = 12345;
     const rnd = () => {
       s = (1664525 * s + 1013904223) >>> 0;
       return s / 4294967296;
     };
-    for (let t = 0; t < 12; t++) {
+    for (let t = 0; t < 24; t++) {
       const q = new Array(N).fill(0).map(() => lo + rnd() * (hi - lo));
+      const scale = 0.25 + 0.75 * rnd();
+      let qs = q.reduce((a, b) => a + b, 0);
+      if (qs > 1e-12) {
+        const target = sumMax * scale;
+        for (let i = 0; i < N; i++) q[i] *= target / qs;
+      }
       starts.push(project(q));
     }
 
@@ -406,7 +412,42 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
         best = q.slice();
       }
     }
+    // 收尾抛光，避免卡在非峰点
+    const pol = polish(best);
+    if (pol.H > bestH) {
+      bestH = pol.H;
+      best = pol.q;
+    }
     return { q: best, H: bestH };
+  }
+  /** 数值梯度短程抛光（供 hill 收尾，保证凹问题到峰） */
+  function polish(q0) {
+    let q = project(q0.slice());
+    let h = H_of(q);
+    let step = Math.max(0.4, hi - lo) * 0.5;
+    for (let it = 0; it < 80; it++) {
+      const g = new Array(N).fill(0);
+      let ok = true;
+      for (let k = 0; k < N; k++) {
+        const e = 1e-4;
+        const qp = q.slice(), qm = q.slice();
+        qp[k] = Math.min(hi, q[k] + e);
+        qm[k] = Math.max(lo, q[k] - e);
+        const hp = H_of(qp), hm = H_of(qm);
+        if (!isFinite(hp) || !isFinite(hm)) { ok = false; break; }
+        g[k] = (hp - hm) / (2 * e);
+      }
+      if (!ok) break;
+      const gmax = Math.max(...g.map(Math.abs), 1e-15);
+      let improved = false;
+      for (const sc of [step, step * 0.4, step * 0.16]) {
+        const cand = project(q.map((x, k) => x + sc * g[k] / gmax));
+        const hh = H_of(cand);
+        if (hh > h + 1e-13) { q = cand; h = hh; improved = true; break; }
+      }
+      if (!improved) { step *= 0.5; if (step < 1e-5) break; }
+    }
+    return { q, H: h };
   }
   function gradRefine(start) {
     let q = project(start ? start.slice() : new Array(N).fill(0));

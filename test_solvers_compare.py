@@ -278,6 +278,36 @@ def main() -> int:
             failures += 1
         check(f"{key} 结构完整", ok, m.get("method"))
 
+    print("\n[8] 三资产+透支: 爬山/初值 与 SLSQP 对齐 (曾差 0.028 bit)")
+    hard_p = [0.1, 0.2, 0.3, 0.25, 0.15]
+    hard_g = [
+        [-0.2, -0.1, 0.0],
+        [0.05, -0.3, 0.1],
+        [0.15, 0.1, 0.05],
+        [0.3, 0.2, -0.05],
+        [0.1, 0.5, 0.4],
+    ]
+    hs = solve_max_entropy_slsqp(hard_p, hard_g, r0=0.0, allow_leverage=True, max_multiple=5.0)
+    hh = optimize_portfolio_entropy(hard_p, hard_g, r0=0.0, allow_leverage=True, max_multiple=5.0)
+    hw = solve_max_entropy_warmstart(hard_p, hard_g, r0=0.0, allow_leverage=True, max_multiple=5.0)
+    ok = abs(hh["H_bits"] - hs["H_bits"]) < 5e-3
+    if not ok:
+        failures += 1
+    check("爬山 H≈SLSQP", ok, f"hill={hh['H_bits']:.6f}, slsqp={hs['H_bits']:.6f}")
+    ok = abs(hw["H_bits"] - hs["H_bits"]) < 1e-3
+    if not ok:
+        failures += 1
+    check("warm H≈SLSQP", ok, f"warm={hw['H_bits']:.6f}, slsqp={hs['H_bits']:.6f}")
+    # Σq 约束
+    ok = abs(sum(hh["asset_weights"]) - 5.0) < 1e-3 or sum(hh["asset_weights"]) <= 5.0 + 1e-6
+    if not ok:
+        failures += 1
+    check("爬山 Σq≤M", ok, f"sum={sum(hh['asset_weights']):.6f}")
+    ok = all(x <= 5.0 + 1e-6 for x in hh["asset_weights"])
+    if not ok:
+        failures += 1
+    check("爬山 各 q≤M", ok, str(hh["asset_weights"]))
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)

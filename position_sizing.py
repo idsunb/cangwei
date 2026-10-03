@@ -997,16 +997,22 @@ def optimize_portfolio_entropy(
 
     lo_asset = -max_multiple if allow_short else 0.0
     hi_asset = max_multiple if allow_leverage else 1.0
+    # 总仓位上限（透支时 M 可 >1）
+    sum_max = float(max_multiple) if allow_leverage else min(1.0, float(max_multiple))
 
     def H_of(q_assets: np.ndarray) -> float:
         q_sum = float(np.sum(q_assets))
         q0 = 1.0 - q_sum
+        # 总仓位必须 ≤ M（透支上限）；不透支时 M=1 且 q0≥0
+        if q_sum > sum_max + 1e-12:
+            return float("-inf")
         if not allow_leverage and q0 < -1e-12:
             return float("-inf")
         if not allow_short and np.any(q_assets < -1e-12):
             return float("-inf")
+        if allow_short and np.any(q_assets < -max_multiple - 1e-12):
+            return float("-inf")
         # 组合产出比
-        # R_w = q0 R0 + Σ q_k (1+r_wk)
         port_R = q0 * R0 + (A + 1.0) @ q_assets
         if np.any(port_R <= 0):
             return float("-inf")
@@ -1030,24 +1036,24 @@ def optimize_portfolio_entropy(
     for _ in range(30):
         q = best_q + rng.normal(0, 0.15, size=N)
         q = np.clip(q, lo_asset, hi_asset)
-        # 投影: 总仓位不超过约束
-        if not allow_leverage:
-            s = q.sum()
-            if s > max_multiple:
-                q = q * (max_multiple / s)
+        # 投影: 总仓位不超过 sum_max
+        s = q.sum()
+        if s > sum_max:
+            q = q * (sum_max / s) if s > 0 else np.zeros_like(q)
+            q = np.clip(q, lo_asset, hi_asset)
         h = H_of(q)
         if h > best_H:
             best_H, best_q = h, q
 
     # 坐标爬山
     step = 0.08
-    for _ in range(80):
+    for _ in range(120):
         improved = False
         for k in range(N):
             for direction in (step, -step):
                 q = best_q.copy()
                 q[k] = float(np.clip(q[k] + direction, lo_asset, hi_asset))
-                if not allow_leverage and q.sum() > max_multiple + 1e-12:
+                if q.sum() > sum_max + 1e-12:
                     continue
                 h = H_of(q)
                 if h > best_H + 1e-12:
@@ -1056,6 +1062,37 @@ def optimize_portfolio_entropy(
         if not improved:
             step *= 0.5
             if step < 1e-4:
+                break
+
+    # 梯度抛光: 凹问题上把爬山结果推到峰（解析梯度）
+    q_pol = best_q.copy()
+    step = max(0.4, hi_asset - lo_asset) * 0.5
+    Pn = P / P.sum()
+    Delta = (1.0 + A) - R0
+    for _ in range(100):
+        port_R = R0 + Delta @ q_pol
+        if np.any(port_R <= 1e-14):
+            break
+        # ∂H/∂q_k = Σ P Δ / (port_R ln2)
+        g = (Delta.T @ (Pn / port_R)) / math.log(2.0)
+        gmax = float(np.max(np.abs(g))) or 1e-15
+        improved = False
+        for sc in (step, step * 0.4, step * 0.16, step * 0.064):
+            cand = q_pol + sc * g / gmax
+            cand = np.clip(cand, lo_asset, hi_asset)
+            if cand.sum() > sum_max:
+                if cand.sum() > 0:
+                    cand = cand * (sum_max / cand.sum())
+                cand = np.clip(cand, lo_asset, hi_asset)
+            h = H_of(cand)
+            if h > best_H + 1e-13:
+                best_H, best_q = float(h), cand
+                q_pol = cand
+                improved = True
+                break
+        if not improved:
+            step *= 0.5
+            if step < 1e-5:
                 break
 
     q0 = 1.0 - float(best_q.sum())
