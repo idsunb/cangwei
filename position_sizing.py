@@ -1360,22 +1360,36 @@ def compare_solvers(
     """
     三种方法对比: 爬山 / SLSQP / 近似初值+SLSQP.
 
-    返回各方法结果 + H 最大者名次.
+    返回各方法结果 + H 最大者名次 + 各方法耗时 elapsed_ms.
     """
-    hill = optimize_portfolio_entropy(
-        probs,
-        asset_returns,
-        r0=r0,
-        allow_short=allow_short,
-        allow_leverage=allow_leverage,
-        max_multiple=max_multiple,
+    import time as _time
+
+    def _timed(fn):
+        t0 = _time.perf_counter()
+        out = fn()
+        out["elapsed_ms"] = (_time.perf_counter() - t0) * 1000.0
+        return out
+
+    hill = _timed(
+        lambda: optimize_portfolio_entropy(
+            probs,
+            asset_returns,
+            r0=r0,
+            allow_short=allow_short,
+            allow_leverage=allow_leverage,
+            max_multiple=max_multiple,
+        )
     )
     hill["method"] = "hill_climb"
-    sls = solve_max_entropy_slsqp(
-        probs, asset_returns, r0, allow_short, allow_leverage, max_multiple
+    sls = _timed(
+        lambda: solve_max_entropy_slsqp(
+            probs, asset_returns, r0, allow_short, allow_leverage, max_multiple
+        )
     )
-    warm = solve_max_entropy_warmstart(
-        probs, asset_returns, r0, allow_short, allow_leverage, max_multiple
+    warm = _timed(
+        lambda: solve_max_entropy_warmstart(
+            probs, asset_returns, r0, allow_short, allow_leverage, max_multiple
+        )
     )
     rows = {
         "hill_climb": hill,
@@ -1394,6 +1408,7 @@ def compare_solvers(
         "best": ranked[0][0],
         "H_bits": {k: v.get("H_bits") for k, v in rows.items()},
         "weights": {k: v.get("weights") for k, v in rows.items()},
+        "elapsed_ms": {k: v.get("elapsed_ms") for k, v in rows.items()},
     }
 
 

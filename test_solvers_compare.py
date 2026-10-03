@@ -278,7 +278,22 @@ def main() -> int:
             failures += 1
         check(f"{key} 结构完整", ok, m.get("method"))
 
-    print("\n[8] 三资产+透支: 爬山/初值 与 SLSQP 对齐 (曾差 0.028 bit)")
+    print("\n[9] 对比结果含耗时 elapsed_ms")
+    probs = [0.25] * 4
+    grid = [[-1, -1], [-1, 2], [2, -1], [2, 2]]
+    cmp_t = compare_solvers(probs, grid, r0=0.0)
+    em = cmp_t.get("elapsed_ms", {})
+    ok = all(k in em and em[k] is not None and em[k] >= 0 for k in
+             ("hill_climb", "slsqp", "approx_warmstart_slsqp"))
+    if not ok:
+        failures += 1
+    check("compare_solvers.elapsed_ms 齐全", ok, str({k: round(v, 3) for k, v in em.items()}))
+    ok = all("elapsed_ms" in v for v in cmp_t["methods"].values())
+    if not ok:
+        failures += 1
+    check("各方法结果含 elapsed_ms", ok)
+
+    print("\n[8] 三资产+透支: 爬山/初值 与 SLSQP 对齐")
     hard_p = [0.1, 0.2, 0.3, 0.25, 0.15]
     hard_g = [
         [-0.2, -0.1, 0.0],

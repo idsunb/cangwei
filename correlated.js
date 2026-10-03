@@ -561,10 +561,16 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
   };
 }
 
-/** 三方法对比 */
+/** 三方法对比（含耗时 ms） */
 function compareCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
   const methods = ["hill", "grad", "warm"];
-  const results = methods.map((m) => solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple, m));
+  const results = methods.map((m) => {
+    const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const res = solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple, m);
+    const t1 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    res.elapsedMs = t1 - t0;
+    return res;
+  });
   const ranked = results.slice().sort((a, b) => (b.H || -Infinity) - (a.H || -Infinity));
   return { results, ranking: ranked.map((r) => r.method), best: ranked[0].method };
 }
@@ -894,13 +900,13 @@ function runMultiCompare() {
     const joint = jointFromCopula(margState, corr, 8000, 42);
     const cmp = compareCorrelated(joint, r0, sh, lev, M);
 
-    let th = "<thead><tr><th>方法</th><th>H (bit)</th>";
+    let th = "<thead><tr><th>方法</th><th>H (bit)</th><th>耗时 (ms)</th>";
     margState.forEach((m) => (th += `<th>${m.name}</th>`));
     th += "<th>现金</th><th>负债</th><th>ΔH</th></tr></thead><tbody>";
     const bestH = cmp.results[0].H;
     const sorted = cmp.results.slice().sort((a, b) => (b.H || -Infinity) - (a.H || -Infinity));
     sorted.forEach((r) => {
-      th += `<tr><td>${r.method}</td><td>${fmt(r.H, 6)}</td>`;
+      th += `<tr><td>${r.method}</td><td>${fmt(r.H, 6)}</td><td>${fmt(r.elapsedMs != null ? r.elapsedMs : 0, 2)}</td>`;
       r.weights.forEach((q) => (th += `<td>${fmt(q, 4)}</td>`));
       th += `<td>${fmt(r.cash, 4)}</td><td>${fmt(r.debt, 4)}</td>`;
       th += `<td>${fmt(bestH - r.H, 6)}</td></tr>`;
@@ -908,8 +914,10 @@ function runMultiCompare() {
     th += "</tbody>";
     document.getElementById("n-compare-table").innerHTML = th;
     document.getElementById("n-compare-wrap").style.display = "block";
+    const fastest = sorted.reduce((a, b) => ((a.elapsedMs || 1e9) <= (b.elapsedMs || 1e9) ? a : b));
     document.getElementById("n-note").innerHTML =
-      `凸问题下三种方法应接近或相同；最优为 <b>${sorted[0].method}</b>（H=${fmt(sorted[0].H, 6)}）。`;
+      `凸问题下三种方法应接近或相同；最优为 <b>${sorted[0].method}</b>（H=${fmt(sorted[0].H, 6)}），` +
+      `最快为 <b>${fastest.method}</b>（${fmt(fastest.elapsedMs, 2)} ms）。`;
     // 同步展示最优
     const best = sorted[0];
     document.getElementById("n-out").innerHTML = `

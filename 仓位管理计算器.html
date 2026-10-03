@@ -1603,26 +1603,30 @@ function runMultiCompare() {
     ];
     const rows = [];
     for (const [m, label] of methods) {
+      const t0 = performance.now();
       const res = solveMultiMethod(m, mState.probs, mState.grid, r0, sh, lev, M);
-      rows.push({ label, H: res.H, w: res.weights, method: res.method });
+      const t1 = performance.now();
+      rows.push({ label, H: res.H, w: res.weights, method: res.method, ms: t1 - t0 });
     }
     rows.sort((a, b) => (b.H || -Infinity) - (a.H || -Infinity));
     const names = ["现金", ...mState.assets];
-    let th = "<thead><tr><th>方法</th><th>H (bit)</th>";
+    let th = "<thead><tr><th>方法</th><th>H (bit)</th><th>耗时 (ms)</th>";
     names.forEach(n => { th += `<th>${n}</th>`; });
     th += "<th>与最优 H 差</th></tr></thead><tbody>";
     const bestH = rows[0].H;
     rows.forEach(r => {
-      th += `<tr><td>${r.label}</td><td>${isFinite(r.H) ? fmt(r.H, 6) : "−∞"}</td>`;
+      th += `<tr><td>${r.label}</td><td>${isFinite(r.H) ? fmt(r.H, 6) : "−∞"}</td><td>${fmt(r.ms, 2)}</td>`;
       r.w.forEach(q => { th += `<td>${fmt(q, 4)}</td>`; });
       th += `<td>${isFinite(bestH) ? fmt(bestH - r.H, 6) : "—"}</td></tr>`;
     });
     th += "</tbody>";
     document.getElementById("m-compare-table").innerHTML = th;
     document.getElementById("m-compare-wrap").style.display = "block";
+    const fastest = rows.reduce((a, b) => (a.ms <= b.ms ? a : b));
     document.getElementById("m-note").innerHTML =
-      `凸问题下三种方法应接近或相同；最优为 <b>${rows[0].label}</b>（H=${fmt(rows[0].H, 6)}）。` +
-      `Python 侧 SLSQP（scipy）结果见 test_solvers_compare.py。`;
+      `凸问题下三种方法应接近或相同；最优为 <b>${rows[0].label}</b>（H=${fmt(rows[0].H, 6)}），` +
+      `最快为 <b>${fastest.label}</b>（${fmt(fastest.ms, 2)} ms）。` +
+      `大计算量时优先比较耗时；Python SLSQP 见 test_solvers_compare.py。`;
     // 同时展示最优方法的权重表
     const bestRes = solveMultiMethod(rows[0] && rows[0].label.includes("爬山") ? "hill" : rows[0].label.includes("初值") ? "warm" : "grad",
       mState.probs, mState.grid, r0, sh, lev, M);
