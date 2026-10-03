@@ -219,6 +219,27 @@ def main() -> int:
             failures += 1
         check("JS 相关测试通过", ok, (r.stdout + r.stderr)[-200:].replace("\n", " "))
 
+    print("\n[7] copula 推导文档完整性")
+    doc = ROOT / "copula推导.md"
+    if not doc.exists():
+        failures += 1
+        check("copula推导.md 存在", False)
+    else:
+        text = doc.read_text(encoding="utf-8")
+        for key in [
+            "概率积分变换",
+            "高斯",
+            "Cholesky",
+            "marginalCuts",
+            "2×3",
+            "jointFromCopula",
+            "Frechet",
+        ]:
+            ok = key in text
+            if not ok:
+                failures += 1
+            check(f"文档含「{key}」", ok)
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)
