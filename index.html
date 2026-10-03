@@ -17,14 +17,68 @@
 
 <main>
   <div class="tabs">
-    <button class="tab active" data-tab="two">两证券 + ρ</button>
+    <button class="tab active" data-tab="one">单证券闭式</button>
+    <button class="tab" data-tab="two">两证券 + ρ</button>
     <button class="tab" data-tab="multi">多证券相关矩阵</button>
     <button class="tab" data-tab="rho">ρ 扫描对比</button>
     <button class="tab" data-tab="theory">方法说明</button>
   </div>
 
+  <!-- ============ 单证券闭式 ============ -->
+  <section class="panel active" id="panel-one">
+    <h2>单证券 · 闭式最优仓位（§3.2）</h2>
+    <p class="sub">两状态（亏 / 赢）单资产，与主计算器「单资产定仓位」一致：优先闭式 (3.2.3)，并画出 H(q) 曲线。</p>
+    <div class="formula">q′ = −(P₁Δ₁ + P₂Δ₂) / (Δ₁Δ₂) · R₀
+Δᵢ = rᵢ − r₀,  R₀ = 1 + r₀
+q* = clamp(q′, L, U)   （不透支不卖空: [0,1]）
+
+亏光上限: 只要亏光概率 P₁&gt;0，q* &lt; 1−P₁</div>
+
+    <div class="examples">
+      <button class="chip" data-one="coin">掷硬币 25%</button>
+      <button class="chip" data-one="stock">股票/国债 59%</button>
+      <button class="chip" data-one="future">期货大波动 33%</button>
+      <button class="chip" data-one="opt">期权 6.7%</button>
+      <button class="chip" data-one="dice">骰子 33%</button>
+      <button class="chip" data-one="lev">透支例 3.75</button>
+    </div>
+
+    <div class="grid">
+      <div><label>P₁（亏损概率）</label><input id="o-p1" type="number" value="0.5" step="0.05" min="0" max="1" /></div>
+      <div><label>P₂</label><input id="o-p2" type="number" value="0.5" step="0.05" min="0" max="1" /></div>
+      <div><label>r₁（亏）</label><input id="o-r1" type="number" value="-1" step="0.01" /></div>
+      <div><label>r₂（赢）</label><input id="o-r2" type="number" value="2" step="0.01" /></div>
+      <div><label>无风险 r₀</label><input id="o-r0" type="number" value="0" step="0.01" /></div>
+      <div><label>最大倍数 M</label><input id="o-M" type="number" value="2" step="0.1" min="1" /></div>
+      <div><label>自有资金（元）</label><input id="o-cap" type="number" value="100000" step="1000" /></div>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="o-lev" /> 允许透支</label>
+      <label class="check"><input type="checkbox" id="o-short" /> 允许卖空</label>
+      <button class="primary" id="o-run">计算 q*</button>
+    </div>
+
+    <div class="results" id="o-out">
+      <div class="metric"><div class="k">原始 q′</div><div class="v" id="o-qraw">—</div></div>
+      <div class="metric"><div class="k">最优 q*</div><div class="v" id="o-q">—</div><div class="hint" id="o-qhint"></div></div>
+      <div class="metric"><div class="k">现金</div><div class="v" id="o-cash">—</div></div>
+      <div class="metric"><div class="k">负债</div><div class="v warn" id="o-debt">—</div></div>
+      <div class="metric"><div class="k">几何平均</div><div class="v" id="o-rg">—</div></div>
+      <div class="metric"><div class="k">期望收益</div><div class="v" id="o-ra">—</div></div>
+      <div class="metric"><div class="k">增值熵 H</div><div class="v" id="o-H">—</div><div class="hint">bit / 期</div></div>
+    </div>
+    <div class="results">
+      <div class="metric"><div class="k">投入金额</div><div class="v" id="o-amt">—</div></div>
+      <div class="metric"><div class="k">现金金额</div><div class="v" id="o-amt0">—</div></div>
+      <div class="metric"><div class="k">负债金额</div><div class="v" id="o-amtd">—</div></div>
+    </div>
+    <div class="note" id="o-note"></div>
+    <canvas id="o-canvas" width="640" height="260" aria-label="H(q) 曲线"></canvas>
+    <p class="src">§3.2 式 (3.2.3)；与《仓位管理计算器.html》单资产页同一公式。</p>
+  </section>
+
   <!-- ============ 两证券 ============ -->
-  <section class="panel active" id="panel-two">
+  <section class="panel" id="panel-two">
     <h2>两证券：精确联合分布</h2>
     <p class="sub">每种证券两状态（跌 / 涨）。给定边际概率、收益和相关系数 ρ，写出 2×2 联合表，再最大化增值熵。</p>
     <div class="formula">P(H,H) = pₐ pᵦ + ρ·√[pₐ(1−pₐ) pᵦ(1−pᵦ)]

@@ -575,6 +575,175 @@ function compareCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
   return { results, ranking: ranked.map((r) => r.method), best: ranked[0].method };
 }
 
+/* ===================== 单证券闭式 §3.2 ===================== */
+
+/**
+ * 单证券两状态闭式: q' = -(P1Δ1+P2Δ2)/(Δ1Δ2)·R0
+ * returns: [r_loss_side, r_gain_side] 任意顺序，内部按 Δ 排序
+ */
+function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M) {
+  if (probs.length !== 2 || returns.length !== 2) {
+    throw new Error("闭式仅适用于两种可能收益");
+  }
+  let P1 = probs[0], P2 = probs[1];
+  let D1 = returns[0] - r0, D2 = returns[1] - r0;
+  if (D1 > D2) {
+    const tmpD = D1; D1 = D2; D2 = tmpD;
+    const tmpP = P1; P1 = P2; P2 = tmpP;
+  }
+  const R0 = 1 + r0;
+  const Eex = P1 * D1 + P2 * D2;
+  let qRaw, notes = [];
+  if (D1 >= 0) {
+    qRaw = 1;
+    notes.push("只赢不亏 → 满仓");
+  } else if (D2 <= 0) {
+    qRaw = 0;
+    notes.push("只亏不赢 → 空仓");
+  } else if (Eex <= 0) {
+    qRaw = 0;
+    notes.push("期望超常收益≤0 → 空仓");
+  } else {
+    qRaw = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0;
+    notes.push("闭式 q′=" + fmt(qRaw, 6));
+  }
+  const lo = allowShort ? -M : 0;
+  const hi = allowLev ? M : 1;
+  const q = Math.min(hi, Math.max(lo, qRaw));
+  if (qRaw > hi + 1e-12) notes.push("触及上限 " + hi);
+  if (qRaw < lo - 1e-12) notes.push("触及下限 " + lo);
+  const rs = [];
+  for (const r of returns) {
+    let R;
+    if (q > 1) R = -(q - 1) * R0 + q * (1 + r); // 简化: 贷款=r0
+    else if (q >= 0) R = (1 - q) * R0 + q * (1 + r);
+    else if (q >= -1) R = (1 + q) * R0 + q * (1 + r);
+    else R = -(Math.abs(q) - 1) * R0 + q * (1 + r);
+    rs.push(R - 1);
+  }
+  const H = growthEntropy(probs, rs);
+  let logRg = 0, ok = true;
+  for (let i = 0; i < probs.length; i++) {
+    if (1 + rs[i] <= 0) { ok = false; break; }
+    logRg += probs[i] * Math.log(1 + rs[i]);
+  }
+  return {
+    qRaw, q, cashRaw: 1 - q,
+    cash: Math.max(0, 1 - q),
+    debt: Math.max(0, q - 1),
+    H, rg: ok ? Math.exp(logRg) - 1 : -1,
+    ra: probs[0] * rs[0] + probs[1] * rs[1],
+    notes,
+  };
+}
+
+function drawOneHCurve(probs, returns, r0, qStar) {
+  const canvas = document.getElementById("o-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const pad = { l: 48, r: 16, t: 18, b: 34 };
+  ctx.clearRect(0, 0, W, H);
+  const qs = [], Hs = [];
+  let hMin = Infinity, hMax = -Infinity;
+  for (let i = 0; i <= 200; i++) {
+    const q = i / 200;
+    const rs = returns.map((r) => (1 - q) * (1 + r0) + q * (1 + r) - 1);
+    const Hq = growthEntropy(probs, rs);
+    qs.push(q); Hs.push(Hq);
+    if (isFinite(Hq)) { hMin = Math.min(hMin, Hq); hMax = Math.max(hMax, Hq); }
+  }
+  if (!isFinite(hMin)) { hMin = -0.5; hMax = 0.5; }
+  if (hMax - hMin < 1e-6) hMax = hMin + 1;
+  const x = (q) => pad.l + q * (W - pad.l - pad.r);
+  const y = (h) => pad.t + (1 - (h - hMin) / (hMax - hMin)) * (H - pad.t - pad.b);
+  ctx.strokeStyle = "#e4ddd2";
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b);
+  ctx.stroke();
+  ctx.fillStyle = "#6b6560"; ctx.font = "11px sans-serif";
+  ctx.fillText("q=0", pad.l, H - pad.b + 16);
+  ctx.fillText("q=1", W - pad.r - 24, H - pad.b + 16);
+  ctx.strokeStyle = "#0f5c4c"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < qs.length; i++) {
+    if (!isFinite(Hs[i])) { started = false; continue; }
+    if (!started) { ctx.moveTo(x(qs[i]), y(Hs[i])); started = true; }
+    else ctx.lineTo(x(qs[i]), y(Hs[i]));
+  }
+  ctx.stroke();
+  if (isFinite(qStar) && qStar >= 0 && qStar <= 1) {
+    const rs = returns.map((r) => (1 - qStar) * (1 + r0) + qStar * (1 + r) - 1);
+    const hOpt = growthEntropy(probs, rs);
+    if (isFinite(hOpt)) {
+      ctx.fillStyle = "#8a3b12";
+      ctx.beginPath(); ctx.arc(x(qStar), y(hOpt), 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillText("q*=" + fmt(qStar, 3), x(qStar) + 8, y(hOpt) - 8);
+    }
+  }
+}
+
+function runOne() {
+  let p1 = num("o-p1");
+  let p2 = num("o-p2");
+  if (Math.abs(p1 + p2 - 1) > 1e-9 && p1 >= 0 && p1 <= 1) p2 = 1 - p1;
+  const r1 = num("o-r1"), r2 = num("o-r2"), r0 = num("o-r0");
+  const lev = document.getElementById("o-lev").checked;
+  const sh = document.getElementById("o-short").checked;
+  const M = num("o-M") || 2;
+  const cap = num("o-cap") || 0;
+  const res = optimalSingleClosed([p1, p2], [r1, r2], r0, lev, sh, M);
+  document.getElementById("o-qraw").textContent = fmt(res.qRaw, 4);
+  document.getElementById("o-q").textContent = pct(res.q);
+  document.getElementById("o-cash").textContent = pct(res.cash);
+  document.getElementById("o-debt").textContent = pct(res.debt);
+  document.getElementById("o-rg").textContent = pct(res.rg);
+  document.getElementById("o-ra").textContent = pct(res.ra);
+  document.getElementById("o-H").textContent = isFinite(res.H) ? fmt(res.H, 4) : "−∞";
+  document.getElementById("o-amt").textContent = (res.q * cap).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  document.getElementById("o-amt0").textContent = (res.cash * cap).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  document.getElementById("o-amtd").textContent = (res.debt * cap).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  document.getElementById("o-qhint").textContent =
+    res.q >= 0.999 ? "满仓" : res.q <= 0.001 ? "空仓" : res.q > 1 ? "透支" : res.q < 0 ? "卖空" : "部分仓位";
+  const msgs = res.notes.slice();
+  if (1 + r1 <= 0 || r1 <= -(1 + r0) * 0.999) {
+    msgs.push("存在接近/达到 100% 亏损：仓位不应超过 1−P₁ = " + pct(1 - p1, 1));
+  }
+  const note = document.getElementById("o-note");
+  note.style.display = msgs.length ? "block" : "none";
+  note.innerHTML = msgs.join("<br>");
+  drawOneHCurve([p1, p2], [r1, r2], r0, res.q);
+}
+
+document.getElementById("o-run").addEventListener("click", runOne);
+["o-p1", "o-p2", "o-r1", "o-r2", "o-r0", "o-M", "o-cap"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", runOne);
+});
+document.getElementById("o-lev").addEventListener("change", runOne);
+document.getElementById("o-short").addEventListener("change", runOne);
+document.querySelectorAll("[data-one]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const e = {
+      coin: { p1: 0.5, r1: -1, r2: 2, r0: 0, lev: false, short: false, M: 2 },
+      stock: { p1: 0.5, r1: -0.3, r2: 0.8, r0: 0.1, lev: false, short: false, M: 2 },
+      future: { p1: 0.5, r1: -1, r2: 3, r0: 0, lev: false, short: false, M: 2 },
+      opt: { p1: 0.7, r1: -1, r2: 3, r0: 0, lev: false, short: false, M: 2 },
+      dice: { p1: 1 / 3, r1: -1, r2: 1, r0: 0, lev: false, short: false, M: 2 },
+      lev: { p1: 0.5, r1: 0.08, r2: -0.05, r0: 0, lev: true, short: false, M: 5 },
+    }[btn.getAttribute("data-one")];
+    document.getElementById("o-p1").value = e.p1;
+    document.getElementById("o-p2").value = 1 - e.p1;
+    document.getElementById("o-r1").value = e.r1;
+    document.getElementById("o-r2").value = e.r2;
+    document.getElementById("o-r0").value = e.r0;
+    document.getElementById("o-lev").checked = e.lev;
+    document.getElementById("o-short").checked = e.short;
+    document.getElementById("o-M").value = e.M;
+    runOne();
+  });
+});
+
 /* ===================== UI 多证券 runMulti ===================== */
 
 /* ===================== UI ===================== */
@@ -1022,6 +1191,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.getElementById("panel-" + tab.getAttribute("data-tab")).classList.add("active");
     if (tab.getAttribute("data-tab") === "rho") runRhoScan();
     if (tab.getAttribute("data-tab") === "two") runTwo();
+    if (tab.getAttribute("data-tab") === "one") runOne();
     if (tab.getAttribute("data-tab") === "multi") runMulti();
   });
 });
@@ -1094,5 +1264,6 @@ document.getElementById("s-copy-two").addEventListener("click", runRhoScan);
 
 /* init */
 initMulti(3);
+runOne();
 runTwo();
 runMulti();

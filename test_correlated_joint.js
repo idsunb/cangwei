@@ -27,6 +27,9 @@ const code = [
   grab("optimizeCorrelated"),
   grab("solveCorrelated"),
   grab("compareCorrelated"),
+  grab("optimalSingleClosed"),
+  "function fmt(x,d=4){return isFinite(x)?x.toFixed(d):String(x);}",
+  "function pct(x,d=2){return isFinite(x)?(x*100).toFixed(d)+'%':String(x);}",
 ].join("\n");
 
 eval(code);
@@ -127,6 +130,20 @@ if (typeof solveCorrelated === "function" && typeof compareCorrelated === "funct
   check("ρ=0 三方法口径下 q* 一致", dq < 1e-9, `Δq=${dq}`);
 } else {
   check("solveCorrelated 已导出", false);
+}
+
+// 单证券闭式 (index.html)
+if (typeof optimalSingleClosed === "function") {
+  const s1 = optimalSingleClosed([0.5, 0.5], [-1, 2], 0, false, false, 2);
+  check("index 单证券 coin q≈0.25", Math.abs(s1.q - 0.25) < 1e-6, s1.q.toFixed(6));
+  const s2 = optimalSingleClosed([0.5, 0.5], [-0.3, 0.8], 0.1, false, false, 2);
+  check("index 单证券 stock q≈0.59", Math.abs(s2.q - 0.589286) < 1e-4, s2.q.toFixed(6));
+  const s3 = optimalSingleClosed([0.5, 0.5], [0.08, -0.05], 0, true, false, 5);
+  check("index 单证券 lev q≈3.75", Math.abs(s3.q - 3.75) < 1e-4, s3.q.toFixed(6));
+  const s4 = optimalSingleClosed([0.7, 0.3], [-1, 3], 0, false, false, 2);
+  check("index 单证券 opt q≈0.067", Math.abs(s4.q - 0.066667) < 1e-4, s4.q.toFixed(6));
+} else {
+  check("optimalSingleClosed 已导出", false);
 }
 
 console.log(fail ? `失败 ${fail} 项` : "全部通过");

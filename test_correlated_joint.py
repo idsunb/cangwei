@@ -287,6 +287,21 @@ def main() -> int:
                 failures += 1
             check(f"方法说明含「{key}」", ok)
 
+    print("\n[9] index.html 含单证券闭式选项卡")
+    if idx.exists():
+        html = idx.read_text(encoding="utf-8")
+        for key in [
+            "panel-one",
+            "单证券",
+            "optimalSingleClosed",
+            "o-run",
+            "§3.2",
+        ]:
+            ok = key in html or key in (ROOT / "correlated.js").read_text(encoding="utf-8")
+            if not ok:
+                failures += 1
+            check(f"单证券页含「{key}」", ok)
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)
