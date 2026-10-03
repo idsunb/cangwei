@@ -160,6 +160,18 @@ function normalizeMarginals(marginals) {
 function jointFromCopula(marginals, corr, nSamples = 8000, seed = 42) {
   const marg = normalizeMarginals(marginals);
   const n = marg.length;
+  // ρ 全为 0（单位阵）→ 精确独立，避免 MC 噪声使 q* 与独立列不一致
+  let isIdentity = true;
+  for (let i = 0; i < n && isIdentity; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i !== j && Math.abs(corr[i][j]) > 1e-12) {
+        isIdentity = false;
+        break;
+      }
+    }
+  }
+  if (isIdentity) return jointIndependent(marginals);
+
   const L = cholesky(corr);
   if (!L) throw new Error("相关矩阵非正定，请先投影到 PSD");
   const cuts = marg.map((m) => marginalCuts(m.states));
@@ -171,7 +183,10 @@ function jointFromCopula(marginals, corr, nSamples = 8000, seed = 42) {
   const counts = new Array(total).fill(0);
   const rng = makeRng(seed);
   const eps = new Array(n).fill(0);
-  for (let s = 0; s < nSamples; s++) {
+  // 对偶变量 (antithetic): ε 与 −ε 成对，降低 MC 方差
+  const nPairs = Math.max(1, Math.floor(nSamples / 2));
+  const nUsed = nPairs * 2;
+  for (let s = 0; s < nPairs; s++) {
     for (let i = 0; i < n; i++) {
       const u1 = Math.max(1e-12, rng());
       const u2 = rng();
@@ -179,20 +194,21 @@ function jointFromCopula(marginals, corr, nSamples = 8000, seed = 42) {
       const th = 2 * Math.PI * u2;
       eps[i] = r * Math.cos(th);
     }
-    let idx = 0;
-    const st = new Array(n).fill(0);
-    for (let k = 0; k < n; k++) {
-      let zk = 0;
-      for (let j = 0; j <= k; j++) zk += L[k][j] * eps[j];
-      const u = normCdf(zk);
-      st[k] = pickState(u, cuts[k]);
-      idx = idx * dims[k] + st[k];
+    for (const sign of [1, -1]) {
+      let idx = 0;
+      for (let k = 0; k < n; k++) {
+        let zk = 0;
+        for (let j = 0; j <= k; j++) zk += L[k][j] * (sign * eps[j]);
+        const u = normCdf(zk);
+        const st = pickState(u, cuts[k]);
+        idx = idx * dims[k] + st;
+      }
+      counts[idx] += 1;
     }
-    counts[idx] += 1;
   }
   const rows = [];
   for (let idx = 0; idx < total; idx++) {
-    const p = counts[idx] / nSamples;
+    const p = counts[idx] / nUsed;
     if (p <= 0) continue;
     const sa = [];
     const ra = [];

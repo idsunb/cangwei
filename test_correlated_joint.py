@@ -205,6 +205,33 @@ def main() -> int:
         failures += 1
     check("旧两状态格式兼容", ok, f"n={len(p_old)}")
 
+    print("\n[5c] ρ=0 时 q*(相关) ≡ q*(独立) (无 MC 噪声)")
+    p0, g0 = joint_from_correlation_copula(
+        marg_2x3, [[1.0, 0.0], [0.0, 1.0]], n_samples=8000, seed=42
+    )
+    # 应与精确独立逐格相等
+    ok = len(p0) == len(pind)
+    if not ok:
+        failures += 1
+    check("ρ=0 联合格数 = 独立", ok, f"{len(p0)} vs {len(pind)}")
+    max_diff = max(abs(a - b) for a, b in zip(sorted(p0), sorted(pind)))
+    ok = max_diff < 1e-12
+    if not ok:
+        failures += 1
+    check("ρ=0 联合概率逐格相等", ok, f"max_diff={max_diff}")
+    o0 = optimize_portfolio_entropy(p0, g0, r0=0.0, allow_leverage=True, max_multiple=5.0)
+    oi0 = optimize_portfolio_entropy(pind, gind, r0=0.0, allow_leverage=True, max_multiple=5.0)
+    w_diff = max(abs(a - b) for a, b in zip(o0["weights"], oi0["weights"]))
+    ok = w_diff < 1e-6
+    if not ok:
+        failures += 1
+    check("ρ=0 时权重完全一致", ok, f"max|Δq|={w_diff:.2e}")
+    ok = abs(o0["H_bits"] - oi0["H_bits"]) < 1e-9
+    if not ok:
+        failures += 1
+    check("ρ=0 时 H 完全一致", ok,
+          f"Hc={o0['H_bits']:.8f}, Hi={oi0['H_bits']:.8f}")
+
     print("\n[6] JS 侧 test_correlated_joint.js")
     import subprocess
 

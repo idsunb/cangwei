@@ -106,6 +106,11 @@ def joint_from_correlation_copula(
     C = np.asarray(corr, dtype=float)
     C = 0.5 * (C + C.T)
     np.fill_diagonal(C, 1.0)
+
+    # 单位阵（ρ 全为 0）→ 精确独立，保证 q* 与独立对照完全一致
+    if float(np.max(np.abs(C - np.eye(n)))) < 1e-12:
+        return expand_joint_from_marginals(states_list)
+
     L = None
     Cuse = C
     for shrink in range(20):
@@ -132,12 +137,16 @@ def joint_from_correlation_copula(
         cuts.append(c)
 
     rng = np.random.default_rng(seed)
-    eps = rng.standard_normal((n_samples, n))
+    # 对偶变量 (antithetic): ε 与 −ε 成对，降低 MC 方差
+    n_pairs = max(1, n_samples // 2)
+    eps = rng.standard_normal((n_pairs, n))
+    eps = np.concatenate([eps, -eps], axis=0)
     Z = eps @ L.T
     U = 0.5 * (1.0 + np.vectorize(math.erf)(Z / math.sqrt(2.0)))
+    n_used = len(eps)
 
     counts: dict = {}
-    for i in range(n_samples):
+    for i in range(n_used):
         idx = 0
         row_idx = []
         for k in range(n):
@@ -154,7 +163,7 @@ def joint_from_correlation_copula(
     probs: List[float] = []
     grid: List[List[float]] = []
     for idx, c in sorted(counts.items()):
-        p = c / n_samples
+        p = c / n_used
         if p <= 0:
             continue
         t = idx
