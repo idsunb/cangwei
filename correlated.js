@@ -636,25 +636,54 @@ function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M, rLoan)
   } else {
     const q_p = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0;
     const q_pp = (D1p === 0 || D2p === 0) ? NaN : -((P1 * D1p + P2 * D2p) / (D1p * D2p)) * RL;
+    // 原始 q′ 始终为不含贷款成本的闭式
+    qRaw = q_p;
+    notes.push("闭式 q′（不含贷款成本）=" + fmt(q_p, 6));
+    let qPick = q_p;
     if (!allowLev || q_p <= 1) {
-      qRaw = q_p;
       region = q_p > 1 ? "满仓" : "多头";
-      notes.push("闭式 q′=" + fmt(qRaw, 6));
     } else if (isFinite(q_pp) && q_pp >= 1) {
-      qRaw = q_pp;
       region = "透支区";
-      notes.push("透支闭式 q″=" + fmt(qRaw, 6) + "（贷款 r₀′=" + fmt(rLoan, 4) + "）");
+      notes.push("透支闭式 q″=" + fmt(q_pp, 6) + "（贷款 r₀′=" + fmt(rLoan, 4) + "）");
+      const cands = [q_p, q_pp, 1.0, M];
+      let bestQ = q_p, bestH = -Infinity;
+      for (const cand of cands) {
+        const qq = Math.min(M, Math.max(allowShort ? -M : 0, cand));
+        const rs = returns.map((r) => {
+          const R = qq > 1 ? -(qq - 1) * RL + qq * (1 + r) : (1 - qq) * R0 + qq * (1 + r);
+          return R - 1;
+        });
+        const h = growthEntropy(probs, rs);
+        if (h > bestH) { bestH = h; bestQ = qq; }
+      }
+      qPick = bestQ;
     } else {
-      qRaw = 1;
       region = "满仓边界";
-      notes.push("透支区无内点，取边界 q=1（r₀′=" + fmt(rLoan, 4) + "）");
+      notes.push("透支区无内点（q″" + (isFinite(q_pp) ? "=" + fmt(q_pp, 4) : "不存在") +
+        "）；r₀′=" + fmt(rLoan, 4) + " 使加杠杆不划算，取边界 q=1");
+      let bestQ = 1, bestH = -Infinity;
+      for (let i = 0; i <= 400; i++) {
+        const qq = (i / 400) * M;
+        const rs = returns.map((r) => {
+          const R = qq > 1 ? -(qq - 1) * RL + qq * (1 + r) : (1 - qq) * R0 + qq * (1 + r);
+          return R - 1;
+        });
+        const h = growthEntropy(probs, rs);
+        if (h > bestH) { bestH = h; bestQ = qq; }
+      }
+      if (Math.abs(bestQ - 1) > 1e-3) {
+        notes.push("数值校验最优 ≈ " + fmt(bestQ, 4) + "，已采用");
+      } else {
+        notes.push("数值校验确认 q=1 为 H 最大点");
+      }
+      qPick = bestQ;
     }
   }
   const lo = allowShort ? -M : 0;
   const hi = allowLev ? M : 1;
-  const q = Math.min(hi, Math.max(lo, qRaw));
-  if (qRaw > hi + 1e-12) notes.push("触及上限 " + hi);
-  if (qRaw < lo - 1e-12) notes.push("触及下限 " + lo);
+  const q = Math.min(hi, Math.max(lo, qPick));
+  if (qPick > hi + 1e-12) notes.push("触及上限 " + hi);
+  if (qPick < lo - 1e-12) notes.push("触及下限 " + lo);
 
   const rs = returns.map((r) => {
     let R;
@@ -754,8 +783,7 @@ function runOne() {
   document.getElementById("o-amt").textContent = (res.q * cap).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
   document.getElementById("o-amt0").textContent = (res.cash * cap).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
   document.getElementById("o-amtd").textContent = (res.debt * cap).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
-  document.getElementById("o-qhint").textContent =
-    (res.region || "") + (res.q >= 0.999 ? " 满仓" : res.q <= 0.001 && res.q >= 0 ? " 空仓" : res.q > 1 ? " 透支" : res.q < 0 ? " 卖空" : " 部分仓位");
+  document.getElementById("o-qhint").textContent = res.region || "";
   const msgs = res.notes.slice();
   if (lev || sh) {
     const costNote =

@@ -758,15 +758,30 @@ function optimalSingle(probs, returns, r0, allowLev, allowShort, M, rLoan) {
   else {
     const q_p = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0;
     const q_pp = (D1p === 0 || D2p === 0) ? NaN : -((P1 * D1p + P2 * D2p) / (D1p * D2p)) * RL;
+    qRaw = q_p;
+    notes.push("闭式 q′（不含贷款成本）=" + fmt(qRaw, 6));
     if (!allowLev || q_p <= 1) {
-      qRaw = q_p;
-      notes.push("闭式解 q′=" + fmt(qRaw, 6));
+      // 保留 q_p
     } else if (isFinite(q_pp) && q_pp >= 1) {
-      qRaw = q_pp;
-      notes.push("透支闭式 q″=" + fmt(qRaw, 6) + "（r₀′=" + fmt(rLoan, 4) + "）");
+      notes.push("透支闭式 q″=" + fmt(q_pp, 6) + "（r₀′=" + fmt(rLoan, 4) + "）");
+      const cands = [q_p, q_pp, 1.0, M];
+      let bestQ = q_p, bestH = -Infinity;
+      for (const cand of cands) {
+        const qq = Math.min(M, Math.max(allowShort ? -M : 0, cand));
+        const h = growthEntropy(probs, portReturns(qq, returns, r0, rLoan));
+        if (h > bestH) { bestH = h; bestQ = qq; }
+      }
+      qRaw = bestQ;
     } else {
-      qRaw = 1;
-      notes.push("透支区无内点，取边界 q=1（r₀′=" + fmt(rLoan, 4) + "）");
+      notes.push("透支区无内点；r₀′=" + fmt(rLoan, 4) + " 使加杠杆不划算，数值校验 [0,M]");
+      let bestQ = 1, bestH = -Infinity;
+      for (let i = 0; i <= 400; i++) {
+        const qq = (i / 400) * M;
+        const h = growthEntropy(probs, portReturns(qq, returns, r0, rLoan));
+        if (h > bestH) { bestH = h; bestQ = qq; }
+      }
+      notes.push("数值最优 ≈ " + fmt(bestQ, 4));
+      qRaw = bestQ;
     }
   }
   // 数值兜底：若闭式异常则网格搜索

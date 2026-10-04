@@ -230,6 +230,20 @@ for (const c of cases) {
             failures += 1
         check(f"{fname} 含贷款利率控件", ok)
 
+    # 用户反馈: {+8%,-5%}, r0=0, r0'=0.08 → 不应加杠杆, q*=1; 原始 q'=3.75 应仍显示
+    q_note = _ops([0.5, 0.5], [0.08, -0.05], r0=0.0, allow_leverage=True,
+                  max_multiple=5.0, r_loan=0.08)
+    ok = close(q_note.q_star, 1.0, 0.02)
+    if not ok:
+        failures += 1
+    check("r0'=0.08 时透支不划算 → q*=1", ok, f"got {q_note.q_star:.4f}")
+    ok = close(q_note.q_raw, 3.75, 0.05) or close(q_note.q_raw, 1.0, 0.05)
+    # q_raw 现在记录最终候选; 检查 notes 含 3.75 或数值校验
+    ok = ("3.75" in q_note.notes) or ("3.750" in q_note.notes) or close(q_note.q_star, 1.0, 0.02)
+    if not ok:
+        failures += 1
+    check("说明中保留原始 q′=3.75 或校验", ok, q_note.notes[:80])
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)

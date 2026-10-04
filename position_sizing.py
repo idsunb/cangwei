@@ -373,6 +373,7 @@ def optimal_position_single(
     need_numeric = len(returns) != 2 or not (
         (deltas[0] < 0 < deltas[1]) or (deltas[1] < 0 < deltas[0])
     )
+    q_owned = None  # 不含贷款成本的闭式 q'，用于展示
 
     if not need_numeric:
         # 规范: D1 = 较小超额收益(亏损侧), D2 = 较大超额收益(盈利侧)
@@ -396,31 +397,56 @@ def optimal_position_single(
             q_unbounded = 0.0
             notes_list.append(f"期望超常收益={E_excess:.6f}≤0 → 空仓")
         else:
-            # q' = -(P1 D1 + P2 D2)/(D1 D2) * R0   (自有资金区 [0,1])
+            # q' = -(P1 D1 + P2 D2)/(D1 D2) * R0   (自有资金区 [0,1], 不含贷款成本)
             q_p = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0
             r_loss = returns[0] if deltas[0] <= deltas[1] else returns[1]
             r_gain = returns[1] if deltas[0] <= deltas[1] else returns[0]
             D1p, D2p = r_loss - r_loan, r_gain - r_loan
-            if not allow_leverage or q_p <= 1.0:
-                q_unbounded = q_p
-                notes_list.append(f"闭式解 q' = {q_p:.6f}")
-            else:
-                # q_p>1: 必须进入透支区，用 r_loan 的一阶条件 (§3.3)
-                if D1p != 0 and D2p != 0:
-                    q_pp = -((P1 * D1p + P2 * D2p) / (D1p * D2p)) * R_loan
-                    if q_pp >= 1.0:
-                        q_unbounded = q_pp
-                        notes_list.append(
-                            f"透支闭式 q'' = {q_pp:.6f} (r_loan={r_loan})"
-                        )
+
+            def _H_at(q):
+                rs2 = []
+                for r in returns:
+                    if q > 1:
+                        R = -(q - 1.0) * R_loan + q * (1.0 + r)
                     else:
-                        q_unbounded = 1.0
-                        notes_list.append(
-                            f"透支区无内点 (q''={q_pp:.4f}<1)，取边界 q=1"
-                        )
-                else:
-                    q_unbounded = q_p
-                    notes_list.append("Δ'退化，退回 q'")
+                        R = (1.0 - q) * R0 + q * (1.0 + r)
+                    rs2.append(R - 1.0)
+                return growth_entropy(probs, rs2, base=2.0)
+
+            q_owned = q_p
+            q_unbounded = q_p
+            notes_list.append(f"闭式 q'（不含贷款成本）= {q_p:.6f}")
+            if not allow_leverage or q_p <= 1.0:
+                pass
+            elif D1p != 0 and D2p != 0:
+                q_pp = -((P1 * D1p + P2 * D2p) / (D1p * D2p)) * R_loan
+                notes_list.append(f"透支闭式 q'' = {q_pp:.6f} (r_loan={r_loan})")
+                # 在候选点中取 H 最大
+                lo_c = -max_multiple if allow_short else 0.0
+                hi_c = max_multiple
+                cands = [q_p, q_pp, 1.0, hi_c]
+                best_q_c, best_h_c = q_p, float("-inf")
+                for c in cands:
+                    cq = float(np.clip(c, lo_c, hi_c))
+                    h = _H_at(cq)
+                    if h > best_h_c:
+                        best_h_c, best_q_c = h, cq
+                q_unbounded = best_q_c
+            else:
+                # Δ' 退化 (如 r_gain = r_loan): 数值确认
+                notes_list.append(
+                    f"透支区无内点（Δ' 退化, r_loan={r_loan}），数值校验 [0,M]"
+                )
+                lo_c = 0.0
+                hi_c = max_multiple if allow_leverage else 1.0
+                best_q_c, best_h_c = 1.0, float("-inf")
+                for i in range(401):
+                    cq = lo_c + (hi_c - lo_c) * i / 400.0
+                    h = _H_at(cq)
+                    if h > best_h_c:
+                        best_h_c, best_q_c = h, cq
+                q_unbounded = best_q_c
+                notes_list.append(f"数值最优 = {q_unbounded:.6f}")
     else:
         # 数值一维搜索
         notes_list.append("多状态或同号超额收益 → 数值搜索")
@@ -469,7 +495,7 @@ def optimal_position_single(
         formula = "q* = argmax_q H(q)  (数值搜索)"
 
     return SinglePositionResult(
-        q_raw=float(q_unbounded),
+        q_raw=float(q_owned) if q_owned is not None else float(q_unbounded),
         q_star=q_star,
         cash=1.0 - q_star,
         H=H,
