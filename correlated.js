@@ -109,9 +109,29 @@ function projectCorrPSD(R, n) {
 }
 
 /**
- * 边际 → 分位阈值。states = [{p,r}, ...]，p 之和≈1。
- * 返回 cut[i] 使得 state j ⇔ cut[j] < U ≤ cut[j+1]
+ * 统一结果表: 项目 | q* | 占比
+ * items: [{name, q}]，现金/负债/标的合计自动补全（与两证券页一致）
  */
+function fillWeightTable(tableEl, items, opts) {
+  opts = opts || {};
+  const cashRaw = opts.cashRaw != null
+    ? opts.cashRaw
+    : 1 - items.reduce((a, b) => a + b.q, 0);
+  const cash = Math.max(0, cashRaw);
+  const debt = Math.max(0, -cashRaw);
+  const assetSum = items.reduce((a, b) => a + b.q, 0);
+  let th = "<thead><tr><th>项目</th><th>q*</th><th>占比</th></tr></thead><tbody>";
+  th += `<tr><td>现金</td><td>${fmt(cash, 4)}</td><td>${pct(cash)}</td></tr>`;
+  th += `<tr><td>负债</td><td>${fmt(debt, 4)}</td><td>${pct(debt)}</td></tr>`;
+  items.forEach((it) => {
+    th += `<tr><td>${it.name}</td><td>${fmt(it.q, 4)}</td><td>${pct(it.q)}</td></tr>`;
+  });
+  if (items.length > 1) {
+    th += `<tr><td><b>标的合计</b></td><td><b>${fmt(assetSum, 4)}</b></td><td><b>${pct(assetSum)}</b></td></tr>`;
+  }
+  th += "</tbody>";
+  tableEl.innerHTML = th;
+}
 function marginalCuts(states) {
   const ps = states.map((s) => Math.max(0, s.p));
   const sum = ps.reduce((a, b) => a + b, 0) || 1;
@@ -749,6 +769,9 @@ function runOne() {
   const note = document.getElementById("o-note");
   note.style.display = msgs.length ? "block" : "none";
   note.innerHTML = msgs.filter(Boolean).join("<br>");
+  fillWeightTable(document.getElementById("o-weights"), [
+    { name: "证券 A", q: res.q },
+  ], { cashRaw: 1 - res.q });
   drawOneHCurve([p1, p2], [r1, r2], r0, res.q, rLoan);
 }
 
@@ -822,21 +845,16 @@ function runTwo() {
   out.innerHTML = `
     <div class="metric"><div class="k">H*</div><div class="v">${fmt(res.H, 4)}</div></div>
     <div class="metric"><div class="k">几何平均</div><div class="v">${pct(res.rg)}</div></div>
+    <div class="metric"><div class="k">期望收益</div><div class="v">${pct(res.ra != null ? res.ra : 0)}</div></div>
     <div class="metric"><div class="k">现金</div><div class="v">${pct(res.cash)}</div></div>
     <div class="metric"><div class="k">标的合计</div><div class="v">${pct(res.assetSum)}</div></div>
     <div class="metric"><div class="k">负债</div><div class="v ${res.debt > 1e-9 ? "warn" : ""}">${pct(res.debt)}</div></div>
     <div class="metric"><div class="k">ρ</div><div class="v">${fmt(rho, 2)}</div></div>`;
 
-  const wt = document.getElementById("t-weights");
-  wt.innerHTML =
-    `<thead><tr><th>项目</th><th>q*</th><th>占比</th></tr></thead><tbody>
-     <tr><td>现金</td><td>${fmt(res.cash, 4)}</td><td>${pct(res.cash)}</td></tr>` +
-    (res.debt > 1e-9
-      ? `<tr><td>负债</td><td>${fmt(res.debt, 4)}</td><td>${pct(res.debt)}</td></tr>`
-      : "") +
-    `<tr><td>证券 A</td><td>${fmt(res.weights[0], 4)}</td><td>${pct(res.weights[0])}</td></tr>
-     <tr><td>证券 B</td><td>${fmt(res.weights[1], 4)}</td><td>${pct(res.weights[1])}</td></tr>
-     </tbody>`;
+  fillWeightTable(document.getElementById("t-weights"), [
+    { name: "证券 A", q: res.weights[0] },
+    { name: "证券 B", q: res.weights[1] },
+  ], { cashRaw: res.cashRaw });
 
   // ρ 有效范围提示
   const sA = Math.sqrt(pA * (1 - pA) * pB * (1 - pB));
@@ -1077,6 +1095,12 @@ function runMulti() {
     th += "</tbody>";
     document.getElementById("n-weights").innerHTML = th;
 
+    // 统一格式表（与两证券一致）
+    fillWeightTable(document.getElementById("n-weights2"), margState.map((m, k) => ({
+      name: m.name + "（" + m.states.length + " 态）",
+      q: res.weights[k],
+    })), { cashRaw: res.cashRaw });
+
     const top = joint.slice(0, 16);
     fillJointTable(document.getElementById("n-joint"), top, n);
     document.getElementById("n-compare-wrap").style.display = "none";
@@ -1142,6 +1166,9 @@ function runMultiCompare() {
     th2 += `<tr><td>现金</td><td>${fmt(best.cash, 4)}</td></tr>`;
     th2 += `<tr><td>负债</td><td>${fmt(best.debt, 4)}</td></tr></tbody>`;
     document.getElementById("n-weights").innerHTML = th2;
+    fillWeightTable(document.getElementById("n-weights2"), margState.map((m, k) => ({
+      name: m.name, q: best.weights[k],
+    })), { cashRaw: best.cashRaw });
   } catch (e) {
     document.getElementById("n-note").textContent = "错误: " + e.message;
   }

@@ -78,8 +78,10 @@ q* = clamp(q′, L, U)   （不透支不卖空: [0,1]）
       <div class="metric"><div class="k">负债金额</div><div class="v" id="o-amtd">—</div></div>
     </div>
     <div class="note" id="o-note"></div>
+    <h3 style="font-size:15px;margin:14px 0 6px">仓位结构</h3>
+    <table id="o-weights"></table>
     <canvas id="o-canvas" width="640" height="260" aria-label="H(q) 曲线"></canvas>
-    <p class="src">§3.2 式 (3.2.3)；与《仓位管理计算器.html》单资产页同一公式。</p>
+    <p class="src">§3.2 式 (3.2.3)；结果表与「两证券」页格式一致（项目 / q* / 占比）。</p>
   </section>
 
   <!-- ============ 两证券 ============ -->
@@ -179,6 +181,8 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
 
     <div class="note" id="n-note"></div>
     <div class="results" id="n-out"></div>
+    <h3 style="font-size:15px;margin:12px 0 6px">仓位结构（统一格式）</h3>
+    <table id="n-weights2"></table>
     <table id="n-weights"></table>
     <div id="n-compare-wrap" style="display:none">
       <h3 style="font-size:15px;margin:16px 0 6px">三种求解方法对比</h3>

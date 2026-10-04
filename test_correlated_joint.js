@@ -146,5 +146,20 @@ if (typeof optimalSingleClosed === "function") {
   check("optimalSingleClosed 已导出", false);
 }
 
+if (typeof fillWeightTable === "function") {
+  // 模拟 DOM
+  const el = { innerHTML: "" };
+  fillWeightTable(el, [{ name: "证券 A", q: 0.6154 }, { name: "证券 B", q: 1.3846 }], {
+    cashRaw: -1.0,
+  });
+  const html = el.innerHTML;
+  check("fillWeightTable 含项目列", html.indexOf("项目") >= 0);
+  check("fillWeightTable 含现金/负债", html.indexOf("现金") >= 0 && html.indexOf("负债") >= 0);
+  check("fillWeightTable 含证券A/B", html.indexOf("证券 A") >= 0 && html.indexOf("证券 B") >= 0);
+  check("fillWeightTable 含占比", html.indexOf("占比") >= 0);
+} else {
+  check("fillWeightTable 已导出", false);
+}
+
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
 process.exit(fail ? 1 : 0);
