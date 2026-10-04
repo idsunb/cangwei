@@ -621,16 +621,20 @@ function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M, rLoan)
   const Eex = P1 * D1 + P2 * D2;
 
   let qRaw, region = "", notes = [];
+  let qPick = 0;
   if (D1 >= 0) {
     qRaw = allowLev ? M : 1;
+    qPick = qRaw;
     region = "只赢不亏";
     notes.push("只赢不亏 → " + (allowLev ? "上限 M" : "满仓"));
   } else if (D2 <= 0) {
     qRaw = allowShort ? -M : 0;
+    qPick = qRaw;
     region = "只亏不赢";
     notes.push("只亏不赢 → " + (allowShort ? "卖空上限" : "空仓"));
   } else if (Eex <= 0 && !allowShort) {
     qRaw = 0;
+    qPick = 0;
     region = "空仓";
     notes.push("期望超常收益≤0 → 空仓");
   } else {
@@ -639,7 +643,7 @@ function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M, rLoan)
     // 原始 q′ 始终为不含贷款成本的闭式
     qRaw = q_p;
     notes.push("闭式 q′（不含贷款成本）=" + fmt(q_p, 6));
-    let qPick = q_p;
+    qPick = q_p;
     if (!allowLev || q_p <= 1) {
       region = q_p > 1 ? "满仓" : "多头";
     } else if (isFinite(q_pp) && q_pp >= 1) {
