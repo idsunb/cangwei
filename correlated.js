@@ -109,26 +109,50 @@ function projectCorrPSD(R, n) {
 }
 
 /**
- * 统一结果表: 项目 | q* | 占比
- * items: [{name, q}]，现金/负债/标的合计自动补全（与两证券页一致）
+ * 资金结构拆分（含卖空, 书中 §3.3）:
+ *   多头 q>0:  现金 = 1-Σq  (负则记为负债, 透支)
+ *   卖空 q<0:  占用 |q| 作抵押 → 现金减少 |q|
+ *              q ∈ [-1,0]: 现金 = 1-|q|, 负债 = 0
+ *              |q|>1 深度卖空: 超出部分为负债
+ *   恒等式: 现金 + 标的多头合计 = 1 + 负债 - 卖空绝对值合计
  */
+function splitPosition(qs) {
+  let longSum = 0, shortSum = 0;
+  qs.forEach((q) => {
+    if (q > 0) longSum += q;
+    else if (q < 0) shortSum += -q;
+  });
+  // 先锁定卖空抵押, 再配多头; 不足则透支为负债
+  const locked = shortSum;
+  const cashBefore = 1 - locked - longSum;
+  const cash = Math.max(0, cashBefore);
+  const debt = Math.max(0, -cashBefore);
+  return {
+    cash,
+    debt,
+    shortSum,
+    longSum,
+    cashRaw: cashBefore,
+    assetSum: longSum,
+    shortSumAbs: shortSum,
+  };
+}
+
 function fillWeightTable(tableEl, items, opts) {
   opts = opts || {};
-  const cashRaw = opts.cashRaw != null
-    ? opts.cashRaw
-    : 1 - items.reduce((a, b) => a + b.q, 0);
-  const cash = Math.max(0, cashRaw);
-  const debt = Math.max(0, -cashRaw);
+  const qs = items.map((it) => it.q);
+  const sp = splitPosition(qs);
+  const cash = sp.cash;
+  const debt = sp.debt;
   const assetSum = items.reduce((a, b) => a + b.q, 0);
   let th = "<thead><tr><th>项目</th><th>q*</th><th>占比</th></tr></thead><tbody>";
   th += `<tr><td>现金</td><td>${fmt(cash, 4)}</td><td>${pct(cash)}</td></tr>`;
   th += `<tr><td>负债</td><td>${fmt(debt, 4)}</td><td>${pct(debt)}</td></tr>`;
   items.forEach((it) => {
-    th += `<tr><td>${it.name}</td><td>${fmt(it.q, 4)}</td><td>${pct(it.q)}</td></tr>`;
+    const isShort = it.q < -1e-12;
+    th += `<tr><td>${it.name}${isShort ? "（卖空）" : ""}</td><td>${fmt(it.q, 4)}</td><td>${pct(it.q)}</td></tr>`;
   });
-  if (items.length > 1) {
-    th += `<tr><td><b>标的合计</b></td><td><b>${fmt(assetSum, 4)}</b></td><td><b>${pct(assetSum)}</b></td></tr>`;
-  }
+  th += `<tr><td><b>标的合计</b></td><td><b>${fmt(assetSum, 4)}</b></td><td><b>${pct(assetSum)}</b></td></tr>`;
   th += "</tbody>";
   tableEl.innerHTML = th;
 }

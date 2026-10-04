@@ -179,22 +179,35 @@ def joint_from_correlation_copula(
 
 def split_cash_debt(cash_raw: float, asset_weights: Optional[Sequence[float]] = None) -> dict:
     """
-    资金结构拆分: 现金 / 负债 / 标的合计.
+    资金结构拆分: 现金 / 负债 / 标的 / 卖空.
 
-    约定: q0 = 1 - Σ q_k。当 q0 < 0 表示透支借款, 展示为「负债」而非负现金。
-    例: 标的 3.75 → 现金 0, 负债 2.75 (而不是现金 -2.75)。
+    多头透支: q0=1-Σq_long<0 → 记为负债.
+    卖空 (书中 §3.3): |q| 作抵押, 现金 = 1-|q| (q∈[-1,0]);
+    |q|>1 深度卖空时超出部分为负债.
+
+    例: q=-0.5 → 现金 0.5, 卖空 0.5, 负债 0（不是现金 1.5）
+         q=3.75 → 现金 0, 负债 2.75, 标的 3.75
     """
-    cash = max(0.0, float(cash_raw))
-    debt = max(0.0, -float(cash_raw))
     if asset_weights is None:
-        asset_sum = 1.0 - float(cash_raw)
+        # 单资产: cash_raw 即 1-q 时需换算
+        assets = [1.0 - float(cash_raw)]
     else:
-        asset_sum = float(sum(asset_weights))
+        assets = [float(x) for x in asset_weights]
+    long_sum = sum(x for x in assets if x > 0)
+    short_sum = sum(-x for x in assets if x < 0)
+    # 抵押卖空 + 多头占用; 剩余为现金, 负为负债
+    cash_before = 1.0 - short_sum - long_sum
+    # 单资产调用传 cash_raw=1-q 时, 用资产列更准
+    if asset_weights is not None:
+        cash_before = 1.0 - short_sum - long_sum
+    cash = max(0.0, cash_before)
+    debt = max(0.0, -cash_before)
     return {
         "cash": cash,
         "debt": debt,
-        "asset_sum": asset_sum,
-        "cash_raw": float(cash_raw),
+        "short_sum": short_sum,
+        "asset_sum": long_sum,
+        "cash_raw": cash_before,
     }
 
 

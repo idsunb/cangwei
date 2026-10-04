@@ -244,6 +244,25 @@ for (const c of cases) {
         failures += 1
     check("说明中保留原始 q′=3.75 或校验", ok, q_note.notes[:80])
 
+    print("\n[5] 卖空资金结构: 现金=1-|q|, 非负债")
+    from position_sizing import split_cash_debt as _split
+
+    sp = _split(-0.5, [-0.5])
+    ok = close(sp["cash"], 0.5) and close(sp["debt"], 0.0) and close(sp["short_sum"], 0.5)
+    if not ok:
+        failures += 1
+    check("q=-0.5 → 现金0.5 负债0 卖空0.5", ok, str(sp))
+    sp2 = _split(-2.75, [3.75])
+    ok = close(sp2["cash"], 0.0) and close(sp2["debt"], 2.75)
+    if not ok:
+        failures += 1
+    check("q=3.75 → 现金0 负债2.75", ok, str(sp2))
+    sp3 = _split(0.4, [0.6])
+    ok = close(sp3["cash"], 0.4) and close(sp3["debt"], 0.0)
+    if not ok:
+        failures += 1
+    check("q=0.6 → 现金0.4 负债0", ok, str(sp3))
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)
