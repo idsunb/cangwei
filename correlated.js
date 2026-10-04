@@ -623,6 +623,7 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
     cashRaw: sp.cashRaw,
     H,
     rg: ok ? Math.exp(logRg) - 1 : -1,
+    ra: P.reduce((a, p, i) => a + p * portRs[i], 0),
     portRs,
     method: label,
     nit: out.nit != null ? out.nit : "—",
@@ -914,6 +915,38 @@ document.querySelectorAll("[data-one]").forEach((btn) => {
 
 /* ===================== UI ===================== */
 
+/**
+ * 与单证券一致的结果指标卡: q* / 现金 / 负债 / 几何 / 期望 / H / 金额
+ */
+function fillResultCards(el, opts) {
+  const {
+    qItems = [],   // [{name, q}]
+    cash, debt, rg, ra, H,
+    capital = 0,
+    extra = [],    // [{k, v, warn?}]
+  } = opts;
+  const assetSum = qItems.reduce((a, b) => a + b.q, 0);
+  const amt = assetSum * capital;
+  let html = "";
+  qItems.forEach((it) => {
+    html += `<div class="metric"><div class="k">最优 ${it.name} q*</div><div class="v">${fmt(it.q, 4)}</div><div class="hint">${pct(it.q)}</div></div>`;
+  });
+  html += `<div class="metric"><div class="k">现金</div><div class="v">${pct(cash)}</div></div>`;
+  html += `<div class="metric"><div class="k">负债</div><div class="v ${debt > 1e-9 ? "warn" : ""}">${pct(debt)}</div></div>`;
+  html += `<div class="metric"><div class="k">几何平均</div><div class="v">${pct(rg)}</div></div>`;
+  html += `<div class="metric"><div class="k">期望收益</div><div class="v">${pct(ra)}</div></div>`;
+  html += `<div class="metric"><div class="k">增值熵 H</div><div class="v">${isFinite(H) ? fmt(H, 4) : "−∞"}</div><div class="hint">bit / 期</div></div>`;
+  extra.forEach((e) => {
+    html += `<div class="metric"><div class="k">${e.k}</div><div class="v ${e.warn ? "warn" : ""}">${e.v}</div></div>`;
+  });
+  if (capital > 0) {
+    html += `<div class="metric"><div class="k">投入金额</div><div class="v">${(amt).toLocaleString("zh-CN", { maximumFractionDigits: 0 })}</div></div>`;
+    html += `<div class="metric"><div class="k">现金金额</div><div class="v">${(cash * capital).toLocaleString("zh-CN", { maximumFractionDigits: 0 })}</div></div>`;
+    html += `<div class="metric"><div class="k">负债金额</div><div class="v">${(debt * capital).toLocaleString("zh-CN", { maximumFractionDigits: 0 })}</div></div>`;
+  }
+  el.innerHTML = html;
+}
+
 function fillJointTable(tableEl, rows, n) {
   let th = "<thead><tr><th>情景</th><th>P</th>";
   for (let k = 0; k < n; k++) th += `<th>r${k + 1}</th>`;
@@ -950,14 +983,23 @@ function runTwo() {
   fillJointTable(document.getElementById("t-joint"), rows, 2);
 
   const out = document.getElementById("t-out");
-  out.innerHTML = `
-    <div class="metric"><div class="k">H*</div><div class="v">${fmt(res.H, 4)}</div></div>
-    <div class="metric"><div class="k">几何平均</div><div class="v">${pct(res.rg)}</div></div>
-    <div class="metric"><div class="k">期望收益</div><div class="v">${pct(res.ra != null ? res.ra : 0)}</div></div>
-    <div class="metric"><div class="k">现金</div><div class="v">${pct(res.cash)}</div></div>
-    <div class="metric"><div class="k">标的合计</div><div class="v">${pct(res.assetSum)}</div></div>
-    <div class="metric"><div class="k">负债</div><div class="v ${res.debt > 1e-9 ? "warn" : ""}">${pct(res.debt)}</div></div>
-    <div class="metric"><div class="k">ρ</div><div class="v">${fmt(rho, 2)}</div></div>`;
+  const capT = num("t-cap") || 0;
+  fillResultCards(out, {
+    qItems: [
+      { name: "证券 A", q: res.weights[0] },
+      { name: "证券 B", q: res.weights[1] },
+    ],
+    cash: res.cash,
+    debt: res.debt,
+    rg: res.rg,
+    ra: res.ra != null ? res.ra : 0,
+    H: res.H,
+    capital: capT,
+    extra: [
+      { k: "标的合计", v: pct(res.assetSum) },
+      { k: "ρ", v: fmt(rho, 2) },
+    ],
+  });
 
   fillWeightTable(document.getElementById("t-weights"), [
     { name: "证券 A", q: res.weights[0] },
@@ -1189,14 +1231,21 @@ function runMulti() {
     });
 
     const dims = margState.map((m) => m.states.length);
-    document.getElementById("n-out").innerHTML = `
-      <div class="metric"><div class="k">H*（相关）</div><div class="v">${fmt(res.H, 4)}</div></div>
-      <div class="metric"><div class="k">H*（独立对照）</div><div class="v">${fmt(resInd.H, 4)}</div></div>
-      <div class="metric"><div class="k">几何平均</div><div class="v">${pct(res.rg)}</div></div>
-      <div class="metric"><div class="k">现金</div><div class="v">${pct(res.cash)}</div></div>
-      <div class="metric"><div class="k">标的合计</div><div class="v">${pct(res.assetSum)}</div></div>
-      <div class="metric"><div class="k">负债</div><div class="v ${res.debt > 1e-9 ? "warn" : ""}">${pct(res.debt)}</div></div>
-      <div class="metric"><div class="k">方法</div><div class="v" style="font-size:14px">${res.method}</div></div>`;
+    const capN = num("n-cap") || 0;
+    fillResultCards(document.getElementById("n-out"), {
+      qItems: margState.map((m, k) => ({ name: m.name, q: res.weights[k] })),
+      cash: res.cash,
+      debt: res.debt,
+      rg: res.rg,
+      ra: res.ra != null ? res.ra : 0,
+      H: res.H,
+      capital: capN,
+      extra: [
+        { k: "H*（独立对照）", v: fmt(resInd.H, 4) },
+        { k: "标的合计", v: pct(res.assetSum) },
+        { k: "联合情景", v: String(joint.length) },
+      ],
+    });
 
     let th = "<thead><tr><th>证券</th><th>状态数</th><th>q*（相关）</th><th>q*（独立）</th></tr></thead><tbody>";
     margState.forEach((m, k) => {

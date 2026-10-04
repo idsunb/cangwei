@@ -122,6 +122,7 @@ H = Σᵢ Pᵢ log₂( q₀R₀ + qₐRᵢₐ + qᵦRᵢᵦ )</div>
       <div><label>透支上限 M</label><input id="t-M" type="number" value="1" step="0.1" min="1" /></div>
       <div><label>贷款利率 r₀′</label><input id="t-rl" type="number" value="0" step="0.01" /></div>
       <div><label>借券费率 r_b</label><input id="t-rb" type="number" value="0" step="0.005" /></div>
+      <div><label>自有资金（元）</label><input id="t-cap" type="number" value="100000" step="1000" /></div>
     </div>
     <div class="row">
       <label class="check"><input type="checkbox" id="t-lev" /> 允许透支</label>
@@ -160,6 +161,7 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
       <div style="min-width:110px"><label>透支上限 M</label><input id="n-M" type="number" value="1" step="0.1" min="1" /></div>
       <div style="min-width:120px"><label>贷款利率 r₀′</label><input id="n-rl" type="number" value="0" step="0.01" /></div>
       <div style="min-width:120px"><label>借券费率 r_b</label><input id="n-rb" type="number" value="0" step="0.005" /></div>
+      <div style="min-width:120px"><label>自有资金（元）</label><input id="n-cap" type="number" value="100000" step="1000" /></div>
       <label class="check"><input type="checkbox" id="n-lev" /> 允许透支</label>
       <label class="check"><input type="checkbox" id="n-short" /> 允许卖空</label>
       <div style="min-width:170px">

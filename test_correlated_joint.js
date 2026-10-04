@@ -31,6 +31,7 @@ const code = [
   grab("compareCorrelated"),
   grab("optimalSingleClosed"),
   grab("fillWeightTable"),
+  grab("fillResultCards"),
   "function fmt(x,d=4){return isFinite(x)?x.toFixed(d):String(x);}",
   "function pct(x,d=2){return isFinite(x)?(x*100).toFixed(d)+'%':String(x);}",
 ].join("\n");
@@ -193,6 +194,20 @@ if (typeof fillWeightTable === "function") {
   const sumD = d.weights[0] + d.weights[1];
   check("两证券 r_loan 影响透支", sumC > sumD + 0.01 || Math.abs(c.H - d.H) > 1e-4,
     "sum " + sumC.toFixed(3) + " vs " + sumD.toFixed(3) + " H " + c.H.toFixed(4) + "/" + d.H.toFixed(4));
+}
+
+if (typeof fillResultCards === "function") {
+  const el = { innerHTML: "" };
+  fillResultCards(el, {
+    qItems: [{ name: "证券 A", q: 0.6154 }, { name: "证券 B", q: 1.3846 }],
+    cash: 0, debt: 1.0, rg: 0.17, ra: 0.2, H: 0.23, capital: 100000,
+    extra: [{ k: "标的合计", v: "200.00%" }],
+  });
+  check("fillResultCards 显示 q*", el.innerHTML.indexOf("q*") >= 0);
+  check("fillResultCards 显示证券A/B q", el.innerHTML.indexOf("证券 A") >= 0 && el.innerHTML.indexOf("0.6154") >= 0);
+  check("fillResultCards 显示金额", el.innerHTML.indexOf("投入金额") >= 0);
+} else {
+  check("fillResultCards 已导出", false);
 }
 
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
