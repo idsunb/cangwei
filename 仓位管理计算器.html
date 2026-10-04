@@ -806,13 +806,16 @@ function optimalSingle(probs, returns, r0, allowLev, allowShort, M, rLoan, rBorr
   return { qRaw, q, cash: 1 - q, H, rg, ra, notes, rs };
 }
 
-function portReturns(q, returns, r0, rLoan) {
+function portReturns(q, returns, r0, rLoan, rBorrow) {
+  if (rBorrow == null) rBorrow = 0;
   const R0 = 1 + r0, RL = 1 + rLoan;
   return returns.map(r => {
     if (q > 1) return -(q - 1) * RL + q * (1 + r) - 1;
     if (q >= 0) return (1 - q) * R0 + q * (1 + r) - 1;
-    if (q >= -1) return (1 + q) * R0 + q * (1 + r) - 1;
-    return -(Math.abs(q) - 1) * RL + q * (1 + r) - 1;
+    const absq = -q;
+    const cashP = q >= -1 ? (1 - absq) : 0;
+    const loanP = q < -1 ? (absq - 1) : 0;
+    return cashP * R0 - loanP * RL + q * (1 + r) - absq * rBorrow - 1;
   });
 }
 
