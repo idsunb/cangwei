@@ -308,14 +308,33 @@ function jointIndependent(marginals) {
 /* ===================== 增值熵优化 ===================== */
 
 function portReturns(q, returnsRows, r0) {
-  const R0 = 1 + r0;
+  return portReturnsFull(q, returnsRows, r0, r0, 0);
+}
+
+/**
+ * 组合收益 R-1（含贷款 r_loan / 借券 r_borrow）
+ *   现金 q0=1-Σq 抵押模型:
+ *   W-1 = cashLocked·r_cost + Σ q_k r_k − Σ|q_k<0|·r_borrow
+ *   cashLocked = 1 − Σ q_long − Σ |q_short|
+ *   r_cost = r0 (cash≥0) 或 r_loan (cash&lt;0 透支)
+ */
+function portReturnsFull(qv, returnsRows, r0, rLoan, rBorrow) {
+  if (rLoan == null) rLoan = r0;
+  if (rBorrow == null) rBorrow = 0;
+  const qs = Array.isArray(qv) ? qv : [qv];
+  let longSum = 0, shortSum = 0;
+  qs.forEach((x) => {
+    if (x > 0) longSum += x;
+    else if (x < 0) shortSum += -x;
+  });
+  const cashLocked = 1 - longSum - shortSum;
+  const rCost = cashLocked >= 0 ? r0 : rLoan;
   return returnsRows.map((row) => {
-    // row.returns: 资产收益率
-    const qs = q.reduce((a, b) => a + b, 0);
-    const q0 = 1 - qs;
-    let R = q0 * R0;
-    for (let k = 0; k < q.length; k++) R += q[k] * (1 + row.returns[k]);
-    return R - 1;
+    let ret = cashLocked * rCost - shortSum * rBorrow;
+    for (let k = 0; k < qs.length; k++) {
+      ret += qs[k] * row.returns[k];
+    }
+    return ret;
   });
 }
 
@@ -329,8 +348,8 @@ function growthEntropy(probs, returns) {
   return H;
 }
 
-function optimizeCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
-  return solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple, "grad");
+function optimizeCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, rLoan, rBorrow) {
+  return solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple, "grad", rLoan, rBorrow);
 }
 
 /**
@@ -338,30 +357,30 @@ function optimizeCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
  *   hill  坐标爬山
  *   grad  解析梯度精修（从零点）
  *   warm  §3.8 抛物线初值 + 梯度
+ * rLoan / rBorrow: 贷款利率、借券费率（可选, 默认 rLoan=r0, rBorrow=0）
  */
-function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method = "grad") {
+function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method = "grad", rLoan, rBorrow) {
+  if (rLoan == null) rLoan = r0;
+  if (rBorrow == null) rBorrow = 0;
   const W = rows.length;
   const N = rows[0].returns.length;
   let P = rows.map((r) => r.p);
   const s = P.reduce((a, b) => a + b, 0) || 1;
   P = P.map((p) => p / s);
-  const R0 = 1 + r0;
   const lo = allowShort ? -maxMultiple : 0;
   const hi = allowLev ? maxMultiple : 1;
   const sumMax = allowLev ? maxMultiple : 1;
 
   function H_of(qa) {
     const qs = qa.reduce((a, b) => a + b, 0);
-    const q0 = 1 - qs;
-    if (!allowLev && q0 < -1e-12) return -Infinity;
     if (qs > sumMax + 1e-12) return -Infinity;
     if (qa.some((x) => x < -1e-12) && !allowShort) return -Infinity;
+    const rets = portReturnsFull(qa, rows, r0, rLoan, rBorrow);
     let H = 0;
     for (let i = 0; i < W; i++) {
-      let portR = q0 * R0;
-      for (let k = 0; k < N; k++) portR += qa[k] * (1 + rows[i].returns[k]);
-      if (portR <= 0) return -Infinity;
-      H += P[i] * log2(portR);
+      const R = 1 + rets[i];
+      if (R <= 0) return -Infinity;
+      H += P[i] * log2(R);
     }
     return H;
   }
@@ -376,13 +395,23 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
   }
   function grad(q) {
     const g = new Array(N).fill(0);
+    let longSum = 0, shortSum = 0;
+    q.forEach((x) => {
+      if (x > 0) longSum += x;
+      else if (x < 0) shortSum += -x;
+    });
+    const cashLocked = 1 - longSum - shortSum;
+    const rCost = cashLocked >= 0 ? r0 : rLoan;
     for (let i = 0; i < W; i++) {
-      let portR = (1 - q.reduce((a, b) => a + b, 0)) * R0;
-      for (let k = 0; k < N; k++) portR += q[k] * (1 + rows[i].returns[k]);
-      if (portR <= 0) return null;
+      const rets = portReturnsFull(q, [rows[i]], r0, rLoan, rBorrow);
+      const R = 1 + rets[0];
+      if (R <= 0) return null;
       for (let k = 0; k < N; k++) {
-        const D = 1 + rows[i].returns[k] - R0;
-        g[k] += (P[i] * D) / (portR * Math.LN2);
+        // ∂cash/∂q_k = −sign(q_k); 卖空时再 −r_borrow
+        const sg = q[k] >= 0 ? -1 : 1;
+        const shortPen = q[k] < 0 ? rBorrow : 0;
+        const d = sg * rCost + rows[i].returns[k] + shortPen;
+        g[k] += (P[i] * d) / (R * Math.LN2);
       }
     }
     return g;
@@ -573,13 +602,7 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
   }
 
   const qs = out.q.reduce((a, b) => a + b, 0);
-  const q0 = 1 - qs;
-  const portRs = [];
-  for (let i = 0; i < W; i++) {
-    let R = q0 * R0;
-    for (let k = 0; k < N; k++) R += out.q[k] * (1 + rows[i].returns[k]);
-    portRs.push(R - 1);
-  }
+  const portRs = portReturnsFull(out.q, rows, r0, rLoan, rBorrow);
   const H = growthEntropy(P, portRs);
   let logRg = 0;
   let ok = true;
@@ -590,12 +613,14 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
     }
     logRg += P[i] * Math.log(1 + portRs[i]);
   }
+  const sp = splitPosition(out.q);
   return {
     weights: out.q.slice(),
-    cash: Math.max(0, q0),
-    debt: Math.max(0, -q0),
-    assetSum: qs,
-    cashRaw: q0,
+    cash: sp.cash,
+    debt: sp.debt,
+    assetSum: sp.longSum,
+    shortSum: sp.shortSum,
+    cashRaw: sp.cashRaw,
     H,
     rg: ok ? Math.exp(logRg) - 1 : -1,
     portRs,
@@ -606,11 +631,11 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
 }
 
 /** 三方法对比（含耗时 ms） */
-function compareCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
+function compareCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, rLoan, rBorrow) {
   const methods = ["hill", "grad", "warm"];
   const results = methods.map((m) => {
     const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
-    const res = solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple, m);
+    const res = solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple, m, rLoan, rBorrow);
     const t1 = (typeof performance !== "undefined" ? performance.now() : Date.now());
     res.elapsedMs = t1 - t0;
     return res;
@@ -656,7 +681,7 @@ function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M, rLoan,
   // 卖空 -1≤q<0: (1+q) r0 + q r - |q| r_b   （书中 1+(1-|q|)r0+qr，再扣借券）
   // 深度卖空 q<-1: 上式再减 (|q|-1) r0'
   const portR2 = (qq) => returns.map((r) => {
-    if (qq > 1) return -(qq - 1) * RL + qq * r;
+    if (qq > 1) return -(qq - 1) * rLoan + qq * r;
     if (qq >= 0) return (1 - qq) * r0 + qq * r;
     const absq = -qq;
     let ret = (1 + qq) * r0 + qq * r - absq * rBorrow;
@@ -912,9 +937,13 @@ function runTwo() {
   const lev = document.getElementById("t-lev").checked;
   const sh = document.getElementById("t-short").checked;
   const M = num("t-M") || 1;
+  const rl = num("t-rl");
+  const rb = num("t-rb");
+  const rLoan = isFinite(rl) ? rl : r0;
+  const rBorrow = isFinite(rb) ? rb : 0;
 
   const rows = joint2x2(pA, pB, rho, rAL, rAH, rBL, rBH);
-  const res = optimizeCorrelated(rows, r0, sh, lev, M);
+  const res = optimizeCorrelated(rows, r0, sh, lev, M, rLoan, rBorrow);
   rows.forEach((row, i) => {
     row.portR = res.portRs[i];
   });
@@ -1149,8 +1178,12 @@ function runMulti() {
 
     const joint = jointFromCopula(margState, corr, 8000, 42);
     const ind = jointIndependent(margState);
-    const res = solveCorrelated(joint, r0, sh, lev, M, method);
-    const resInd = solveCorrelated(ind, r0, sh, lev, M, method);
+    const rl = num("n-rl");
+    const rb = num("n-rb");
+    const rLoan = isFinite(rl) ? rl : r0;
+    const rBorrow = isFinite(rb) ? rb : 0;
+    const res = solveCorrelated(joint, r0, sh, lev, M, method, rLoan, rBorrow);
+    const resInd = solveCorrelated(ind, r0, sh, lev, M, method, rLoan, rBorrow);
     joint.forEach((row, i) => {
       row.portR = res.portRs[i];
     });
@@ -1209,7 +1242,10 @@ function runMultiCompare() {
     corrState = corr.map((r) => r.slice());
     renderMultiTables();
     const joint = jointFromCopula(margState, corr, 8000, 42);
-    const cmp = compareCorrelated(joint, r0, sh, lev, M);
+    const rl2 = num("n-rl");
+    const rb2 = num("n-rb");
+    const cmp = compareCorrelated(joint, r0, sh, lev, M,
+      isFinite(rl2) ? rl2 : r0, isFinite(rb2) ? rb2 : 0);
 
     let th = "<thead><tr><th>方法</th><th>H (bit)</th><th>耗时 (ms)</th>";
     margState.forEach((m) => (th += `<th>${m.name}</th>`));
@@ -1269,11 +1305,16 @@ function runRhoScan() {
   const pad = { l: 48, r: 16, t: 18, b: 36 };
   ctx.clearRect(0, 0, W, H);
 
+  const rl = num("t-rl");
+  const rb = num("t-rb");
+  const rLoan = isFinite(rl) ? rl : r0;
+  const rBorrow = isFinite(rb) ? rb : 0;
+
   const data = [];
   for (let i = 0; i <= 40; i++) {
     const rho = -1 + (2 * i) / 40;
     const rows = joint2x2(pA, pB, rho, rAL, rAH, rBL, rBH);
-    const res = optimizeCorrelated(rows, r0, sh, lev, M);
+    const res = optimizeCorrelated(rows, r0, sh, lev, M, rLoan, rBorrow);
     data.push({ rho, H: res.H, qA: res.weights[0], qB: res.weights[1], rg: res.rg });
   }
   const Hs = data.map((d) => d.H);

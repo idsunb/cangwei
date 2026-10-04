@@ -23,6 +23,8 @@ const code = [
   grab("jointFromCopula"),
   grab("jointIndependent"),
   grab("portReturns"),
+  grab("portReturnsFull"),
+  grab("splitPosition"),
   grab("growthEntropy"),
   grab("optimizeCorrelated"),
   grab("solveCorrelated"),
@@ -160,6 +162,37 @@ if (typeof fillWeightTable === "function") {
   check("fillWeightTable 含占比", html.indexOf("占比") >= 0);
 } else {
   check("fillWeightTable 已导出", false);
+}
+
+// 两/多证券 贷款与借券
+{
+  const rows = [
+    { p: 0.5, returns: [0.05, -0.08] },
+    { p: 0.5, returns: [0.05, -0.08] },
+  ];
+  // 其实两情景同 — 用 4 情景两资产
+  const rows2 = [
+    { p: 0.25, returns: [0.05, 0.05] },
+    { p: 0.25, returns: [0.05, -0.08] },
+    { p: 0.25, returns: [-0.08, 0.05] },
+    { p: 0.25, returns: [-0.08, -0.08] },
+  ];
+  const a = solveCorrelated(rows2, 0, true, false, 2, "grad", 0, 0);
+  const b = solveCorrelated(rows2, 0, true, false, 2, "grad", 0, 0.05);
+  check("两证券 r_b 影响卖空", Math.abs(a.weights[0] - b.weights[0]) > 0.01 || Math.abs(a.weights[1] - b.weights[1]) > 0.01,
+    JSON.stringify(a.weights) + " vs " + JSON.stringify(b.weights));
+  const rowsPos = [
+    { p: 0.25, returns: [0.3, 0.3] },
+    { p: 0.25, returns: [0.3, -0.1] },
+    { p: 0.25, returns: [-0.1, 0.3] },
+    { p: 0.25, returns: [-0.1, -0.1] },
+  ];
+  const c = solveCorrelated(rowsPos, 0, false, true, 5, "grad", 0, 0);
+  const d = solveCorrelated(rowsPos, 0, false, true, 5, "grad", 0.2, 0);
+  const sumC = c.weights[0] + c.weights[1];
+  const sumD = d.weights[0] + d.weights[1];
+  check("两证券 r_loan 影响透支", sumC > sumD + 0.01 || Math.abs(c.H - d.H) > 1e-4,
+    "sum " + sumC.toFixed(3) + " vs " + sumD.toFixed(3) + " H " + c.H.toFixed(4) + "/" + d.H.toFixed(4));
 }
 
 console.log(fail ? `失败 ${fail} 项` : "全部通过");

@@ -121,7 +121,8 @@ function loadCorr() {
     grab(corrJs,'normCdf'), grab(corrJs,'makeRng'), grab(corrJs,'cholesky'),
     grab(corrJs,'projectCorrPSD'), grab(corrJs,'marginalCuts'), grab(corrJs,'pickState'),
     grab(corrJs,'normalizeMarginals'), grab(corrJs,'jointFromCopula'), grab(corrJs,'jointIndependent'),
-    grab(corrJs,'portReturns'), grab(corrJs,'growthEntropy'),
+    grab(corrJs,'portReturns'), grab(corrJs,'portReturnsFull'), grab(corrJs,'splitPosition'),
+    grab(corrJs,'growthEntropy'),
     grab(corrJs,'optimizeCorrelated'), grab(corrJs,'solveCorrelated'), grab(corrJs,'compareCorrelated'),
   ].join('\n'));
   return { solveCorrelated };
