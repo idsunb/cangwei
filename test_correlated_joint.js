@@ -28,6 +28,7 @@ const code = [
   grab("solveCorrelated"),
   grab("compareCorrelated"),
   grab("optimalSingleClosed"),
+  grab("fillWeightTable"),
   "function fmt(x,d=4){return isFinite(x)?x.toFixed(d):String(x);}",
   "function pct(x,d=2){return isFinite(x)?(x*100).toFixed(d)+'%':String(x);}",
 ].join("\n");
