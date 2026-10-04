@@ -332,6 +332,7 @@ def optimal_position_single(
     allow_short: bool = False,
     max_multiple: float = 1.0,
     r_loan: Optional[float] = None,
+    r_borrow: float = 0.0,
 ) -> SinglePositionResult:
     """
     单硬币打赌最优投资比例公式 (3.2.3).
@@ -346,6 +347,7 @@ def optimal_position_single(
     allow_short     : 是否允许卖空 (q < 0)
     max_multiple    : 允许的最大资金倍数 M (1+可透支倍数)
     r_loan          : 贷款利率, 默认等于 r0
+    r_borrow        : 借券费率 (卖空年化, 按 |q| 支付)
 
     返回 SinglePositionResult
     """
@@ -360,22 +362,18 @@ def optimal_position_single(
 
     # 期望与熵辅助
     def H_at(q: float) -> float:
-        # 分段资金成本: q>1 用贷款利率
-        if q > 1:
-            cash_R = (1.0 - q) * R_loan  # 借款为负现金
-            rs = [cash_R - 1.0 + q * r for r in returns]
-            # 等价: 组合收益 = - (q-1) r_loan + q r  ? 书中:
-            # R = -q0' R0' + q R_k,  q0'=q-1
-            rs = [-(q - 1.0) * R_loan + q * (1.0 + r) - 1.0 for r in returns]
-        elif q < 0:
-            # 卖空: 剩余现金 q0 = 1-|q| = 1+q, 卖空抵押同值
-            # R = (1-|q|) R0 + q R_k = (1+q) R0 + q (1+r)  — 见书中 0≥q≥-1
-            rs = [(1.0 + q) * R0 + q * (1.0 + r) - 1.0 for r in returns]
-            if q < -1:
-                # 超过 -1: 借款卖空
-                rs = [-(abs(q) - 1.0) * R_loan + q * (1.0 + r) - 1.0 for r in returns]
-        else:
-            rs = [(1.0 - q) * R0 + q * (1.0 + r) - 1.0 for r in returns]
+        rs = []
+        for r in returns:
+            if q > 1:
+                R = -(q - 1.0) * R_loan + q * (1.0 + r)
+            elif q >= 0:
+                R = (1.0 - q) * R0 + q * (1.0 + r)
+            else:
+                absq = -q
+                cash_p = (1.0 - absq) if q >= -1 else 0.0
+                loan_p = (absq - 1.0) if q < -1 else 0.0
+                R = cash_p * R0 - loan_p * R_loan + q * (1.0 + r) - absq * r_borrow
+            rs.append(R - 1.0)
         return growth_entropy(probs, rs, base=2.0)
 
     # 需要恰好两种"方向相反"的超额收益才有闭式解
@@ -405,10 +403,24 @@ def optimal_position_single(
         elif D2 <= 0:
             q_unbounded = 0.0
             notes_list.append("只亏不赢 → 空仓(不许卖空)")
-        elif E_excess <= 0:
+        elif E_excess <= 0 and not allow_short:
             # 期望超常收益 ≤ 0 → 空仓更优 (空仓条件)
             q_unbounded = 0.0
             notes_list.append(f"期望超常收益={E_excess:.6f}≤0 → 空仓")
+        elif E_excess <= 0 and allow_short:
+            # 多头无利可图, 试卖空 (Δ_- = r + r0 + r_b)
+            r_loss = returns[0] if deltas[0] <= deltas[1] else returns[1]
+            r_gain = returns[1] if deltas[0] <= deltas[1] else returns[0]
+            Dm1, Dm2 = r_loss + r0 + r_borrow, r_gain + r0 + r_borrow
+            if Dm1 != 0 and Dm2 != 0:
+                q_s = -((P1 * Dm1 + P2 * Dm2) / (Dm1 * Dm2)) * R0
+                q_unbounded = q_s
+                notes_list.append(
+                    f"多头无利可图, 卖空闭式 q_s={q_s:.6f} (r_borrow={r_borrow})"
+                )
+            else:
+                q_unbounded = 0.0
+                notes_list.append("卖空区退化 → 空仓")
         else:
             # q' = -(P1 D1 + P2 D2)/(D1 D2) * R0   (自有资金区 [0,1], 不含贷款成本)
             q_p = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0
@@ -421,8 +433,13 @@ def optimal_position_single(
                 for r in returns:
                     if q > 1:
                         R = -(q - 1.0) * R_loan + q * (1.0 + r)
-                    else:
+                    elif q >= 0:
                         R = (1.0 - q) * R0 + q * (1.0 + r)
+                    else:
+                        absq = -q
+                        cash_p = (1.0 - absq) if q >= -1 else 0.0
+                        loan_p = (absq - 1.0) if q < -1 else 0.0
+                        R = cash_p * R0 - loan_p * R_loan + q * (1.0 + r) - absq * r_borrow
                     rs2.append(R - 1.0)
                 return growth_entropy(probs, rs2, base=2.0)
 
@@ -479,15 +496,18 @@ def optimal_position_single(
         notes_list.append(f"触及卖空下限 -M={-max_multiple}")
 
     # 统一在最优 q 处算熵
-    if q_star > 1:
-        rs = [-(q_star - 1.0) * R_loan + q_star * (1.0 + r) - 1.0 for r in returns]
-    elif q_star < 0:
-        if q_star >= -1:
-            rs = [(1.0 + q_star) * R0 + q_star * (1.0 + r) - 1.0 for r in returns]
+    rs = []
+    for r in returns:
+        if q_star > 1:
+            R = -(q_star - 1.0) * R_loan + q_star * (1.0 + r)
+        elif q_star >= 0:
+            R = (1.0 - q_star) * R0 + q_star * (1.0 + r)
         else:
-            rs = [-(abs(q_star) - 1.0) * R_loan + q_star * (1.0 + r) - 1.0 for r in returns]
-    else:
-        rs = [(1.0 - q_star) * R0 + q_star * (1.0 + r) - 1.0 for r in returns]
+            absq = -q_star
+            cash_p = (1.0 - absq) if q_star >= -1 else 0.0
+            loan_p = (absq - 1.0) if q_star < -1 else 0.0
+            R = cash_p * R0 - loan_p * R_loan + q_star * (1.0 + r) - absq * r_borrow
+        rs.append(R - 1.0)
 
     H = growth_entropy(probs, rs, base=2.0)
     r_g = (2.0 ** H - 1.0) if H > float("-inf") else -1.0

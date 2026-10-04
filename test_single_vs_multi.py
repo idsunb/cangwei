@@ -263,6 +263,30 @@ for (const c of cases) {
         failures += 1
     check("q=0.6 → 现金0.4 负债0", ok, str(sp3))
 
+    print("\n[6] 借券费率 r_b 影响卖空仓位")
+    # 资产倾向下跌: r={+0.05, -0.25} 等概率, 允许卖空
+    q_free = _ops([0.5, 0.5], [0.05, -0.25], r0=0.0, allow_short=True,
+                  max_multiple=10.0, r_loan=0.0, r_borrow=0.0)
+    q_costly = _ops([0.5, 0.5], [0.05, -0.25], r0=0.0, allow_short=True,
+                    max_multiple=10.0, r_loan=0.0, r_borrow=0.05)
+    ok = q_free.q_star < -1.0
+    if not ok:
+        failures += 1
+    check("允许卖空时开负仓位", ok, f"q={q_free.q_star:.4f}")
+    ok = close(q_free.q_star, -8.0, 0.05)
+    if not ok:
+        failures += 1
+    check("r_b=0 → q≈-8", ok, f"got {q_free.q_star:.4f}")
+    ok = close(q_costly.q_star, -2.5, 0.05)
+    if not ok:
+        failures += 1
+    check("r_b=0.05 → q≈-2.5 (更保守)", ok, f"got {q_costly.q_star:.4f}")
+    ok = q_costly.q_star > q_free.q_star + 1.0
+    if not ok:
+        failures += 1
+    check("借券费↑ → |卖空|↓", ok,
+          f"free={q_free.q_star:.4f}, costly={q_costly.q_star:.4f}")
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)
