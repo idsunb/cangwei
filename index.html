@@ -184,9 +184,9 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
     <h3 style="font-size:15px;margin:12px 0 6px">相关矩阵 R（对称，对角=1）</h3>
     <div id="n-corr"></div>
     <div class="row">
-      <button class="ghost" id="n-corr-zero">全部 ρ=0</button>
+      <button class="ghost" id="n-corr-zero">全部 ρ=0（独立）</button>
       <button class="ghost" id="n-corr-pos">全部 ρ=0.5</button>
-      <button class="ghost" id="n-corr-toeplitz">Toeplitz 0.5^|i−j|</button>
+      <button class="ghost" id="n-corr-toeplitz" title="ρ(i,j)=0.5^|i−j|，相邻 0.5、隔一位 0.25…">近强远弱（0.5^距离）</button>
       <button class="ghost" id="n-psd">投影到最近合法 PSD</button>
     </div>
 
