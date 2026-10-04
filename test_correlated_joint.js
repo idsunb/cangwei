@@ -31,6 +31,7 @@ const code = [
   grab("compareCorrelated"),
   grab("optimalSingleClosed"),
   grab("fillWeightTable"),
+  grab("fillWeightCompareTable"),
   grab("fillResultCards"),
   grab("fillJointTable"),
   grab("joint2x2"),
