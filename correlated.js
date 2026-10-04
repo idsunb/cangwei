@@ -879,7 +879,9 @@ function runOne() {
 
 document.getElementById("o-run").addEventListener("click", runOne);
 ["o-p1", "o-p2", "o-r1", "o-r2", "o-r0", "o-M", "o-cap", "o-rl", "o-rb"].forEach((id) => {
-  document.getElementById(id).addEventListener("change", runOne);
+  const el = document.getElementById(id);
+  el.addEventListener("change", runOne);
+  el.addEventListener("input", runOne);
 });
 document.getElementById("o-lev").addEventListener("change", runOne);
 document.getElementById("o-short").addEventListener("change", runOne);
@@ -1006,14 +1008,12 @@ function runTwo() {
     { name: "证券 B", q: res.weights[1] },
   ], { cashRaw: res.cashRaw });
 
-  // ρ 有效范围提示
-  const sA = Math.sqrt(pA * (1 - pA) * pB * (1 - pB));
+  const sA = Math.sqrt(Math.max(0, pA * (1 - pA) * pB * (1 - pB)));
   const p11raw = pA * pB + rho * sA;
-  const clipped = p11raw !== rows[3].p * (rows.reduce((a, b) => a + b.p, 0) || 1);
   document.getElementById("t-note").innerHTML =
-    `P(HH)=${fmt(rows[3].p, 4)}；相关使「同涨同跌」概率 ${
-      rho > 0 ? "升高" : rho < 0 ? "降低" : "不变"
-    }，几何平均与最优仓位随之变化。` +
+    `ρ=${fmt(rho, 2)} → P(HH)=${fmt(rows[3].p, 4)}，` +
+    `qA*=${fmt(res.weights[0], 4)}，qB*=${fmt(res.weights[1], 4)}，H*=${fmt(res.H, 4)} bit。` +
+    `改变 ρ 会改变联合概率与 H*；在边际对称时 q* 可能几乎不变（H* 仍变）。` +
     (p11raw < Math.max(0, pA + pB - 1) - 1e-12 || p11raw > Math.min(pA, pB) + 1e-12
       ? `<br>当前 ρ 超出可行范围，已截断到 Frechet 边界。`
       : "");
@@ -1432,11 +1432,14 @@ document.querySelectorAll(".tab").forEach((tab) => {
 });
 
 document.getElementById("t-run").addEventListener("click", runTwo);
-["t-pA", "t-pB", "t-rAL", "t-rAH", "t-rBL", "t-rBH", "t-rho", "t-r0", "t-M"].forEach((id) => {
+["t-pA", "t-pB", "t-rAL", "t-rAH", "t-rBL", "t-rBH", "t-rho", "t-r0", "t-M", "t-rl", "t-rb", "t-cap"].forEach((id) => {
+  const el = document.getElementById(id);
+  el.addEventListener("change", runTwo);
+  el.addEventListener("input", runTwo);
+});
+["t-lev", "t-short"].forEach((id) => {
   document.getElementById(id).addEventListener("change", runTwo);
 });
-document.getElementById("t-lev").addEventListener("change", runTwo);
-document.getElementById("t-short").addEventListener("change", runTwo);
 document.querySelectorAll("[data-preset]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const p = btn.getAttribute("data-preset");
@@ -1447,6 +1450,16 @@ document.querySelectorAll("[data-preset]").forEach((btn) => {
 
 document.getElementById("n-run").addEventListener("click", runMulti);
 document.getElementById("n-compare").addEventListener("click", runMultiCompare);
+["n-r0", "n-M", "n-rl", "n-rb", "n-cap"].forEach((id) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener("change", runMulti);
+  el.addEventListener("input", runMulti);
+});
+["n-lev", "n-short", "n-method"].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("change", runMulti);
+});
 document.getElementById("n-add").addEventListener("click", () => {
   initMulti(margState.length + 1);
   runMulti();
