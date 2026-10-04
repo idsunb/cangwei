@@ -210,5 +210,16 @@ if (typeof fillResultCards === "function") {
   check("fillResultCards 已导出", false);
 }
 
+if (typeof fillJointTable === "function") {
+  const elJ = { innerHTML: "" };
+  const rowsJ = joint2x2(0.5, 0.5, 0, -0.1, 0.3, -0.15, 0.4);
+  fillJointTable(elJ, rowsJ, 2);
+  check("联合表含原始收益列", elJ.innerHTML.indexOf("原始收益") >= 0);
+  check("联合表含等权组合收益", elJ.innerHTML.indexOf("等权组合收益") >= 0);
+  check("联合表含组合收益(q*)", elJ.innerHTML.indexOf("组合收益(q*)") >= 0);
+} else {
+  check("fillJointTable 已导出", false);
+}
+
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
 process.exit(fail ? 1 : 0);

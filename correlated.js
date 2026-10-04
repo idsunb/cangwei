@@ -962,12 +962,14 @@ function fillResultCards(el, opts) {
 
 function fillJointTable(tableEl, rows, n) {
   let th = "<thead><tr><th>情景</th><th>概率 P</th>";
-  for (let k = 0; k < n; k++) th += `<th>证券${k === 0 ? "A" : k === 1 ? "B" : "S" + k} 收益</th>`;
-  th += "<th>组合收益(q*)</th></tr></thead><tbody>";
-  rows.forEach((r, i) => {
+  for (let k = 0; k < n; k++) th += `<th>${k === 0 ? "A" : k === 1 ? "B" : "S" + k} 原始收益</th>`;
+  th += "<th>等权组合收益</th><th>组合收益(q*)</th></tr></thead><tbody>";
+  rows.forEach((r) => {
     const label = r.label || r.states.join("·");
+    const eq = r.returns.reduce((a, b) => a + b, 0) / (r.returns.length || 1);
     th += `<tr><td>${label}</td><td>${fmt(r.p, 4)}</td>`;
     r.returns.forEach((x) => (th += `<td>${pct(x, 2)}</td>`));
+    th += `<td>${pct(eq, 2)}</td>`;
     th += `<td>${r.portR != null ? pct(r.portR, 2) : "—"}</td></tr>`;
   });
   th += "</tbody>";
