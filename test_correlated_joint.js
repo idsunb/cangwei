@@ -223,5 +223,18 @@ if (typeof fillJointTable === "function") {
   check("fillJointTable 已导出", false);
 }
 
+if (typeof fillWeightCompareTable === "function") {
+  const elC = { innerHTML: "" };
+  fillWeightCompareTable(elC, [
+    { name: "A", q: 0.4, qInd: 0.5 },
+    { name: "B", q: 0.6, qInd: 0.5 },
+  ]);
+  check("对照表含 q*（相关）", elC.innerHTML.indexOf("q*（相关）") >= 0);
+  check("对照表含 q*（独立）", elC.innerHTML.indexOf("q*（独立）") >= 0);
+  check("对照表含占比", elC.innerHTML.indexOf("占比") >= 0);
+} else {
+  check("fillWeightCompareTable 已导出", false);
+}
+
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
 process.exit(fail ? 1 : 0);

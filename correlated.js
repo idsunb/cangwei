@@ -138,6 +138,28 @@ function splitPosition(qs) {
   };
 }
 
+/**
+ * 相关 vs 独立 对照仓位表: 项目 | q*（相关） | q*（独立） | 占比
+ * items: [{name, q, qInd}]；现金/负债由 splitPosition 自动补全
+ */
+function fillWeightCompareTable(tableEl, items) {
+  const qs = items.map((it) => it.q);
+  const qsInd = items.map((it) => it.qInd);
+  const sp = splitPosition(qs);
+  const spInd = splitPosition(qsInd);
+  const assetSum = qs.reduce((a, b) => a + b, 0);
+  let th = "<thead><tr><th>项目</th><th>q*（相关）</th><th>q*（独立）</th><th>占比</th></tr></thead><tbody>";
+  th += `<tr><td>现金</td><td>${fmt(sp.cash, 4)}</td><td>${fmt(spInd.cash, 4)}</td><td>${pct(sp.cash)}</td></tr>`;
+  th += `<tr><td>负债</td><td>${fmt(sp.debt, 4)}</td><td>${fmt(spInd.debt, 4)}</td><td>${pct(sp.debt)}</td></tr>`;
+  items.forEach((it) => {
+    const isShort = it.q < -1e-12;
+    th += `<tr><td>${it.name}${isShort ? "（卖空）" : ""}</td><td>${fmt(it.q, 4)}</td><td>${fmt(it.qInd, 4)}</td><td>${pct(it.q)}</td></tr>`;
+  });
+  th += `<tr><td><b>标的合计</b></td><td><b>${fmt(assetSum, 4)}</b></td><td><b>${fmt(qsInd.reduce((a, b) => a + b, 0), 4)}</b></td><td><b>${pct(assetSum)}</b></td></tr>`;
+  th += "</tbody>";
+  tableEl.innerHTML = th;
+}
+
 function fillWeightTable(tableEl, items, opts) {
   opts = opts || {};
   const qs = items.map((it) => it.q);
@@ -1261,20 +1283,11 @@ function runMulti() {
       ],
     });
 
-    let th = "<thead><tr><th>证券</th><th>状态数</th><th>q*（相关）</th><th>q*（独立）</th></tr></thead><tbody>";
-    margState.forEach((m, k) => {
-      th += `<tr><td>${m.name}</td><td>${m.states.length}</td><td>${fmt(res.weights[k], 4)}</td><td>${fmt(resInd.weights[k], 4)}</td></tr>`;
-    });
-    th += `<tr><td>现金</td><td></td><td>${fmt(res.cash, 4)}</td><td>${fmt(resInd.cash, 4)}</td></tr>`;
-    th += `<tr><td>负债</td><td></td><td>${fmt(res.debt, 4)}</td><td>${fmt(resInd.debt, 4)}</td></tr>`;
-    th += "</tbody>";
-    document.getElementById("n-weights").innerHTML = th;
-
-    // 统一格式表（与两证券一致）
-    fillWeightTable(document.getElementById("n-weights2"), margState.map((m, k) => ({
+    fillWeightCompareTable(document.getElementById("n-weights"), margState.map((m, k) => ({
       name: m.name + "（" + m.states.length + " 态）",
       q: res.weights[k],
-    })), { cashRaw: res.cashRaw });
+      qInd: resInd.weights[k],
+    })));
 
     const top = joint.slice(0, 16);
     fillJointTable(document.getElementById("n-joint"), top, n);
@@ -1337,16 +1350,9 @@ function runMultiCompare() {
       <div class="metric"><div class="k">标的合计</div><div class="v">${pct(best.assetSum)}</div></div>
       <div class="metric"><div class="k">负债</div><div class="v ${best.debt > 1e-9 ? "warn" : ""}">${pct(best.debt)}</div></div>
       <div class="metric"><div class="k">方法</div><div class="v" style="font-size:14px">${best.method}</div></div>`;
-    let th2 = "<thead><tr><th>证券</th><th>q*</th></tr></thead><tbody>";
-    margState.forEach((m, k) => {
-      th2 += `<tr><td>${m.name}</td><td>${fmt(best.weights[k], 4)}</td></tr>`;
-    });
-    th2 += `<tr><td>现金</td><td>${fmt(best.cash, 4)}</td></tr>`;
-    th2 += `<tr><td>负债</td><td>${fmt(best.debt, 4)}</td></tr></tbody>`;
-    document.getElementById("n-weights").innerHTML = th2;
-    fillWeightTable(document.getElementById("n-weights2"), margState.map((m, k) => ({
-      name: m.name, q: best.weights[k],
-    })), { cashRaw: best.cashRaw });
+    fillWeightCompareTable(document.getElementById("n-weights"), margState.map((m, k) => ({
+      name: m.name, q: best.weights[k], qInd: best.weights[k],
+    })));
   } catch (e) {
     document.getElementById("n-note").textContent = "错误: " + e.message;
   }
