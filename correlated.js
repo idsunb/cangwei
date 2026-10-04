@@ -33,10 +33,10 @@ function joint2x2(pA, pB, rho, rAL, rAH, rBL, rBH) {
   const p01 = pB - p11c;
   const p00 = 1 - pA - pB + p11c;
   const rows = [
-    { p: p00, sa: 0, sb: 0, ra: rAL, rb: rBL, returns: [rAL, rBL], label: "LL" },
-    { p: p01, sa: 0, sb: 1, ra: rAL, rb: rBH, returns: [rAL, rBH], label: "LH" },
-    { p: p10, sa: 1, sb: 0, ra: rAH, rb: rBL, returns: [rAH, rBL], label: "HL" },
-    { p: p11c, sa: 1, sb: 1, ra: rAH, rb: rBH, returns: [rAH, rBH], label: "HH" },
+    { p: p00, sa: 0, sb: 0, ra: rAL, rb: rBL, returns: [rAL, rBL], label: "A跌·B跌" },
+    { p: p01, sa: 0, sb: 1, ra: rAL, rb: rBH, returns: [rAL, rBH], label: "A跌·B涨" },
+    { p: p10, sa: 1, sb: 0, ra: rAH, rb: rBL, returns: [rAH, rBL], label: "A涨·B跌" },
+    { p: p11c, sa: 1, sb: 1, ra: rAH, rb: rBH, returns: [rAH, rBH], label: "A涨·B涨" },
   ];
   // 数值噪声
   rows.forEach((r) => {
@@ -271,7 +271,10 @@ function jointFromCopula(marginals, corr, nSamples = 8000, seed = 42) {
       p,
       states: sa,
       returns: ra,
-      label: sa.join(","),
+      label: sa.map((st, k) => {
+        const nm = marg[k].name;
+        return nm + (marg[k].states.length === 2 ? (st ? "涨" : "跌") : "档" + (st + 1));
+      }).join("·"),
     });
   }
   return rows;
@@ -300,7 +303,15 @@ function jointIndependent(marginals) {
       sa.push(tmp[k]);
       ra.push(marg[k].states[tmp[k]].r);
     }
-    rows.push({ p, states: sa, returns: ra, label: sa.join(",") });
+    rows.push({
+      p,
+      states: sa,
+      returns: ra,
+      label: sa.map((st, k) => {
+        const nm = marg[k].name;
+        return nm + (marg[k].states.length === 2 ? (st ? "涨" : "跌") : "档" + (st + 1));
+      }).join("·"),
+    });
   }
   return rows;
 }
@@ -950,11 +961,12 @@ function fillResultCards(el, opts) {
 }
 
 function fillJointTable(tableEl, rows, n) {
-  let th = "<thead><tr><th>情景</th><th>P</th>";
-  for (let k = 0; k < n; k++) th += `<th>r${k + 1}</th>`;
+  let th = "<thead><tr><th>情景</th><th>概率 P</th>";
+  for (let k = 0; k < n; k++) th += `<th>证券${k === 0 ? "A" : k === 1 ? "B" : "S" + k} 收益</th>`;
   th += "<th>组合收益(q*)</th></tr></thead><tbody>";
   rows.forEach((r, i) => {
-    th += `<tr><td>${r.label}</td><td>${fmt(r.p, 4)}</td>`;
+    const label = r.label || r.states.join("·");
+    th += `<tr><td>${label}</td><td>${fmt(r.p, 4)}</td>`;
     r.returns.forEach((x) => (th += `<td>${pct(x, 2)}</td>`));
     th += `<td>${r.portR != null ? pct(r.portR, 2) : "—"}</td></tr>`;
   });
@@ -1011,7 +1023,7 @@ function runTwo() {
   const sA = Math.sqrt(Math.max(0, pA * (1 - pA) * pB * (1 - pB)));
   const p11raw = pA * pB + rho * sA;
   document.getElementById("t-note").innerHTML =
-    `ρ=${fmt(rho, 2)} → P(HH)=${fmt(rows[3].p, 4)}，` +
+    `ρ=${fmt(rho, 2)} → P(A涨·B涨)=${fmt(rows[3].p, 4)}，` +
     `qA*=${fmt(res.weights[0], 4)}，qB*=${fmt(res.weights[1], 4)}，H*=${fmt(res.H, 4)} bit。` +
     `改变 ρ 会改变联合概率与 H*；在边际对称时 q* 可能几乎不变（H* 仍变）。` +
     (p11raw < Math.max(0, pA + pB - 1) - 1e-12 || p11raw > Math.min(pA, pB) + 1e-12

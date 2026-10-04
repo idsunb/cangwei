@@ -53,10 +53,10 @@ const ind = joint2x2(0.5, 0.5, 0, -0.1, 0.3, -0.15, 0.4).map((r) => r.p);
 check("ρ=0 各0.25", ind.every((p) => close(p, 0.25)), ind.join(","));
 const r1 = joint2x2(0.5, 0.5, 1, -0.1, 0.3, -0.15, 0.4);
 const p1 = Object.fromEntries(r1.map((r) => [r.label, r.p]));
-check("ρ=1 同涨同跌", close(p1["HH"], 0.5) && close(p1["LL"], 0.5), JSON.stringify(p1));
+check("ρ=1 同涨同跌", close(p1["A涨·B涨"], 0.5) && close(p1["A跌·B跌"], 0.5), JSON.stringify(p1));
 const rm = joint2x2(0.5, 0.5, -1, -0.1, 0.3, -0.15, 0.4);
 const pm = Object.fromEntries(rm.map((r) => [r.label, r.p]));
-check("ρ=−1 一涨一跌", close(pm["HL"], 0.5) && close(pm["LH"], 0.5), JSON.stringify(pm));
+check("ρ=−1 一涨一跌", close(pm["A涨·B跌"], 0.5) && close(pm["A跌·B涨"], 0.5), JSON.stringify(pm));
 
 function H(rho) {
   const rows = joint2x2(0.5, 0.5, rho, -0.1, 0.3, -0.15, 0.4);
