@@ -287,6 +287,20 @@ for (const c of cases) {
     check("借券费↑ → |卖空|↓", ok,
           f"free={q_free.q_star:.4f}, costly={q_costly.q_star:.4f}")
 
+    print("\n[7] 卖空例 +5%/−8%（预设）")
+    q_s0 = _ops([0.5, 0.5], [0.05, -0.08], r0=0.0, allow_short=True,
+                max_multiple=2.0, r_borrow=0.0)
+    q_s2 = _ops([0.5, 0.5], [0.05, -0.08], r0=0.0, allow_short=True,
+                max_multiple=2.0, r_borrow=0.02)
+    ok = q_s0.q_star < -0.5
+    if not ok:
+        failures += 1
+    check("r_b=0 卖空例 q*<0", ok, f"got {q_s0.q_star:.4f}")
+    ok = abs(q_s2.q_star) < 0.2
+    if not ok:
+        failures += 1
+    check("r_b=0.02 卖空例 q≈0", ok, f"got {q_s2.q_star:.4f}")
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)

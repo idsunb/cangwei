@@ -650,14 +650,18 @@ function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M, rLoan,
 
   let qRaw, region = "", notes = [];
   let qPick = 0;
-  // 组合收益: 卖空区扣借券费 |q|·r_b
+  // 组合收益 R-1
+  // 多头: (1-q)r0 + q r
+  // 透支 q>1: -（q-1）r0' + q r
+  // 卖空 -1≤q<0: (1+q) r0 + q r - |q| r_b   （书中 1+(1-|q|)r0+qr，再扣借券）
+  // 深度卖空 q<-1: 上式再减 (|q|-1) r0'
   const portR2 = (qq) => returns.map((r) => {
-    if (qq > 1) return -(qq - 1) * RL + qq * (1 + r) - 1;
-    if (qq >= 0) return (1 - qq) * R0 + qq * (1 + r) - 1;
+    if (qq > 1) return -(qq - 1) * RL + qq * r;
+    if (qq >= 0) return (1 - qq) * r0 + qq * r;
     const absq = -qq;
-    const cashPart = qq >= -1 ? (1 - absq) : 0;
-    const loanPart = qq < -1 ? (absq - 1) : 0;
-    return cashPart * R0 - loanPart * RL + qq * (1 + r) - absq * rBorrow - 1;
+    let ret = (1 + qq) * r0 + qq * r - absq * rBorrow;
+    if (qq < -1) ret -= (absq - 1) * rLoan;
+    return ret;
   });
 
   if (D1 >= 0) {
@@ -864,7 +868,9 @@ document.querySelectorAll("[data-one]").forEach((btn) => {
       future: { p1: 0.5, r1: -1, r2: 3, r0: 0, lev: false, short: false, M: 2 },
       opt: { p1: 0.7, r1: -1, r2: 3, r0: 0, lev: false, short: false, M: 2 },
       dice: { p1: 1 / 3, r1: -1, r2: 1, r0: 0, lev: false, short: false, M: 2 },
-      lev: { p1: 0.5, r1: 0.08, r2: -0.05, r0: 0, lev: true, short: false, M: 5 },
+      lev: { p1: 0.5, r1: 0.08, r2: -0.05, r0: 0, lev: true, short: false, M: 5, rb: 0.02 },
+      // 卖空例: 资产可能 +5% / −8%，卖空赚跌亏涨; r_b 借券费
+      short: { p1: 0.5, r1: 0.05, r2: -0.08, r0: 0, lev: false, short: true, M: 2, rb: 0.02 },
     }[btn.getAttribute("data-one")];
     document.getElementById("o-p1").value = e.p1;
     document.getElementById("o-p2").value = 1 - e.p1;
@@ -874,6 +880,7 @@ document.querySelectorAll("[data-one]").forEach((btn) => {
     document.getElementById("o-lev").checked = e.lev;
     document.getElementById("o-short").checked = e.short;
     document.getElementById("o-M").value = e.M;
+    if (e.rb != null) document.getElementById("o-rb").value = e.rb;
     runOne();
   });
 });
