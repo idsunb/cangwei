@@ -578,49 +578,72 @@ function compareCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1) {
 /* ===================== 单证券闭式 §3.2 ===================== */
 
 /**
- * 单证券两状态闭式: q' = -(P1Δ1+P2Δ2)/(Δ1Δ2)·R0
- * returns: [r_loss_side, r_gain_side] 任意顺序，内部按 Δ 排序
+ * 单证券两状态闭式 (§3.2 / §3.3):
+ * q' = -(P1Δ1+P2Δ2)/(Δ1Δ2)·R0     自有资金区 q∈[0,1]
+ * q''= -(P1Δ1'+P2Δ2')/(Δ1Δ2)·R0'  透支区 q>1,  Δ'=r-r0', R0'=1+r0'
  */
-function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M) {
+function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M, rLoan) {
   if (probs.length !== 2 || returns.length !== 2) {
     throw new Error("闭式仅适用于两种可能收益");
   }
+  if (rLoan == null) rLoan = r0;
   let P1 = probs[0], P2 = probs[1];
-  let D1 = returns[0] - r0, D2 = returns[1] - r0;
+  let r1 = returns[0], r2 = returns[1];
+  let D1 = r1 - r0, D2 = r2 - r0;
   if (D1 > D2) {
-    const tmpD = D1; D1 = D2; D2 = tmpD;
-    const tmpP = P1; P1 = P2; P2 = tmpP;
+    let t = D1; D1 = D2; D2 = t;
+    t = P1; P1 = P2; P2 = t;
+    t = r1; r1 = r2; r2 = t;
   }
   const R0 = 1 + r0;
+  const RL = 1 + rLoan;
+  const D1p = r1 - rLoan, D2p = r2 - rLoan;
   const Eex = P1 * D1 + P2 * D2;
-  let qRaw, notes = [];
+
+  let qRaw, region = "", notes = [];
   if (D1 >= 0) {
-    qRaw = 1;
-    notes.push("只赢不亏 → 满仓");
+    qRaw = allowLev ? M : 1;
+    region = "只赢不亏";
+    notes.push("只赢不亏 → " + (allowLev ? "上限 M" : "满仓"));
   } else if (D2 <= 0) {
+    qRaw = allowShort ? -M : 0;
+    region = "只亏不赢";
+    notes.push("只亏不赢 → " + (allowShort ? "卖空上限" : "空仓"));
+  } else if (Eex <= 0 && !allowShort) {
     qRaw = 0;
-    notes.push("只亏不赢 → 空仓");
-  } else if (Eex <= 0) {
-    qRaw = 0;
+    region = "空仓";
     notes.push("期望超常收益≤0 → 空仓");
   } else {
-    qRaw = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0;
-    notes.push("闭式 q′=" + fmt(qRaw, 6));
+    const q_p = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0;
+    const q_pp = (D1p === 0 || D2p === 0) ? NaN : -((P1 * D1p + P2 * D2p) / (D1p * D2p)) * RL;
+    if (!allowLev || q_p <= 1) {
+      qRaw = q_p;
+      region = q_p > 1 ? "满仓" : "多头";
+      notes.push("闭式 q′=" + fmt(qRaw, 6));
+    } else if (isFinite(q_pp) && q_pp >= 1) {
+      qRaw = q_pp;
+      region = "透支区";
+      notes.push("透支闭式 q″=" + fmt(qRaw, 6) + "（贷款 r₀′=" + fmt(rLoan, 4) + "）");
+    } else {
+      qRaw = 1;
+      region = "满仓边界";
+      notes.push("透支区无内点，取边界 q=1（r₀′=" + fmt(rLoan, 4) + "）");
+    }
   }
   const lo = allowShort ? -M : 0;
   const hi = allowLev ? M : 1;
   const q = Math.min(hi, Math.max(lo, qRaw));
   if (qRaw > hi + 1e-12) notes.push("触及上限 " + hi);
   if (qRaw < lo - 1e-12) notes.push("触及下限 " + lo);
-  const rs = [];
-  for (const r of returns) {
+
+  const rs = returns.map((r) => {
     let R;
-    if (q > 1) R = -(q - 1) * R0 + q * (1 + r); // 简化: 贷款=r0
+    if (q > 1) R = -(q - 1) * RL + q * (1 + r);
     else if (q >= 0) R = (1 - q) * R0 + q * (1 + r);
     else if (q >= -1) R = (1 + q) * R0 + q * (1 + r);
-    else R = -(Math.abs(q) - 1) * R0 + q * (1 + r);
-    rs.push(R - 1);
-  }
+    else R = -(Math.abs(q) - 1) * RL + q * (1 + r);
+    return R - 1;
+  });
   const H = growthEntropy(probs, rs);
   let logRg = 0, ok = true;
   for (let i = 0; i < probs.length; i++) {
@@ -633,11 +656,13 @@ function optimalSingleClosed(probs, returns, r0, allowLev, allowShort, M) {
     debt: Math.max(0, q - 1),
     H, rg: ok ? Math.exp(logRg) - 1 : -1,
     ra: probs[0] * rs[0] + probs[1] * rs[1],
+    region, rLoan,
     notes,
   };
 }
 
-function drawOneHCurve(probs, returns, r0, qStar) {
+function drawOneHCurve(probs, returns, r0, qStar, rLoan) {
+  if (rLoan == null) rLoan = r0;
   const canvas = document.getElementById("o-canvas");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
@@ -648,7 +673,10 @@ function drawOneHCurve(probs, returns, r0, qStar) {
   let hMin = Infinity, hMax = -Infinity;
   for (let i = 0; i <= 200; i++) {
     const q = i / 200;
-    const rs = returns.map((r) => (1 - q) * (1 + r0) + q * (1 + r) - 1);
+    const rs = returns.map((r) => {
+      const R = q > 1 ? -(q - 1) * (1 + rLoan) + q * (1 + r) : (1 - q) * (1 + r0) + q * (1 + r);
+      return R - 1;
+    });
     const Hq = growthEntropy(probs, rs);
     qs.push(q); Hs.push(Hq);
     if (isFinite(Hq)) { hMin = Math.min(hMin, Hq); hMax = Math.max(hMax, Hq); }
@@ -692,8 +720,10 @@ function runOne() {
   const lev = document.getElementById("o-lev").checked;
   const sh = document.getElementById("o-short").checked;
   const M = num("o-M") || 2;
+  const rl = num("o-rl");
+  const rLoan = isFinite(rl) ? rl : r0;
   const cap = num("o-cap") || 0;
-  const res = optimalSingleClosed([p1, p2], [r1, r2], r0, lev, sh, M);
+  const res = optimalSingleClosed([p1, p2], [r1, r2], r0, lev, sh, M, rLoan);
   document.getElementById("o-qraw").textContent = fmt(res.qRaw, 4);
   document.getElementById("o-q").textContent = pct(res.q);
   document.getElementById("o-cash").textContent = pct(res.cash);
@@ -705,15 +735,21 @@ function runOne() {
   document.getElementById("o-amt0").textContent = (res.cash * cap).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
   document.getElementById("o-amtd").textContent = (res.debt * cap).toLocaleString("zh-CN", { maximumFractionDigits: 0 });
   document.getElementById("o-qhint").textContent =
-    res.q >= 0.999 ? "满仓" : res.q <= 0.001 ? "空仓" : res.q > 1 ? "透支" : res.q < 0 ? "卖空" : "部分仓位";
+    (res.region || "") + (res.q >= 0.999 ? " 满仓" : res.q <= 0.001 && res.q >= 0 ? " 空仓" : res.q > 1 ? " 透支" : res.q < 0 ? " 卖空" : " 部分仓位");
   const msgs = res.notes.slice();
+  if (lev || sh) {
+    const costNote =
+      "资金成本：存款 r₀=" + fmt(r0, 4) + "，贷款 r₀′=" + fmt(rLoan, 4) +
+      (res.q > 1 ? "（透支区用 r₀′）" : "（当前未用到贷款）");
+    msgs.push(costNote);
+  }
   if (1 + r1 <= 0 || r1 <= -(1 + r0) * 0.999) {
     msgs.push("存在接近/达到 100% 亏损：仓位不应超过 1−P₁ = " + pct(1 - p1, 1));
   }
   const note = document.getElementById("o-note");
   note.style.display = msgs.length ? "block" : "none";
-  note.innerHTML = msgs.join("<br>");
-  drawOneHCurve([p1, p2], [r1, r2], r0, res.q);
+  note.innerHTML = msgs.filter(Boolean).join("<br>");
+  drawOneHCurve([p1, p2], [r1, r2], r0, res.q, rLoan);
 }
 
 document.getElementById("o-run").addEventListener("click", runOne);
@@ -722,6 +758,9 @@ document.getElementById("o-run").addEventListener("click", runOne);
 });
 document.getElementById("o-lev").addEventListener("change", runOne);
 document.getElementById("o-short").addEventListener("change", runOne);
+["o-rl"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", runOne);
+});
 document.querySelectorAll("[data-one]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const e = {

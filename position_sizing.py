@@ -396,11 +396,31 @@ def optimal_position_single(
             q_unbounded = 0.0
             notes_list.append(f"期望超常收益={E_excess:.6f}≤0 → 空仓")
         else:
-            # q' = -(P1 D1 + P2 D2)/(D1 D2) * R0
-            q_unbounded = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0
-            notes_list.append(
-                f"闭式解 q' = -(P1Δ1+P2Δ2)/(Δ1Δ2)·R0 = {q_unbounded:.6f}"
-            )
+            # q' = -(P1 D1 + P2 D2)/(D1 D2) * R0   (自有资金区 [0,1])
+            q_p = -((P1 * D1 + P2 * D2) / (D1 * D2)) * R0
+            r_loss = returns[0] if deltas[0] <= deltas[1] else returns[1]
+            r_gain = returns[1] if deltas[0] <= deltas[1] else returns[0]
+            D1p, D2p = r_loss - r_loan, r_gain - r_loan
+            if not allow_leverage or q_p <= 1.0:
+                q_unbounded = q_p
+                notes_list.append(f"闭式解 q' = {q_p:.6f}")
+            else:
+                # q_p>1: 必须进入透支区，用 r_loan 的一阶条件 (§3.3)
+                if D1p != 0 and D2p != 0:
+                    q_pp = -((P1 * D1p + P2 * D2p) / (D1p * D2p)) * R_loan
+                    if q_pp >= 1.0:
+                        q_unbounded = q_pp
+                        notes_list.append(
+                            f"透支闭式 q'' = {q_pp:.6f} (r_loan={r_loan})"
+                        )
+                    else:
+                        q_unbounded = 1.0
+                        notes_list.append(
+                            f"透支区无内点 (q''={q_pp:.4f}<1)，取边界 q=1"
+                        )
+                else:
+                    q_unbounded = q_p
+                    notes_list.append("Δ'退化，退回 q'")
     else:
         # 数值一维搜索
         notes_list.append("多状态或同号超额收益 → 数值搜索")

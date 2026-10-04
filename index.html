@@ -55,8 +55,13 @@ q* = clamp(q′, L, U)   （不透支不卖空: [0,1]）
     <div class="row">
       <label class="check"><input type="checkbox" id="o-lev" /> 允许透支</label>
       <label class="check"><input type="checkbox" id="o-short" /> 允许卖空</label>
+      <div style="min-width:130px">
+        <label>贷款利率 r₀′</label>
+        <input id="o-rl" type="number" value="0.08" step="0.01" />
+      </div>
       <button class="primary" id="o-run">计算 q*</button>
     </div>
+    <p class="sub" style="margin-top:-6px">贷款利率仅在允许透支（q&gt;1）或深度卖空时生效；不透支时只用 r₀。</p>
 
     <div class="results" id="o-out">
       <div class="metric"><div class="k">原始 q′</div><div class="v" id="o-qraw">—</div></div>

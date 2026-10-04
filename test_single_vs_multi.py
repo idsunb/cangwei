@@ -198,6 +198,38 @@ for (const c of cases) {
     except OSError:
         pass
 
+    print("\n[4] 贷款利率 r0' 对透支仓位的影响")
+    # r={0.3,-0.05}, r0=0: 无贷款成本时 q'≈8.33; r0'=0.05 时透支区 q″≈3.15
+    from position_sizing import optimal_position_single as _ops
+
+    q_free = _ops([0.5, 0.5], [0.3, -0.05], r0=0.0, allow_leverage=True,
+                  max_multiple=20, r_loan=0.0)
+    q_costly = _ops([0.5, 0.5], [0.3, -0.05], r0=0.0, allow_leverage=True,
+                    max_multiple=20, r_loan=0.05)
+    ok = close(q_free.q_star, 8.33, 0.05)
+    if not ok:
+        failures += 1
+    check("r0'=0 → q*≈8.33", ok, f"got {q_free.q_star:.4f}")
+    ok = q_costly.q_star < q_free.q_star - 1.0
+    if not ok:
+        failures += 1
+    check("r0'=0.05 → q* 明显更小", ok, f"got {q_costly.q_star:.4f}")
+    ok = close(q_costly.q_star, 3.15, 0.15)
+    if not ok:
+        failures += 1
+    check("r0'=0.05 → q*≈3.15 (透支闭式)", ok, f"got {q_costly.q_star:.4f}")
+
+    # HTML 含贷款利率输入
+    for fname, keys in (
+        ("index.html", ["o-rl", "贷款利率"]),
+        ("仓位管理计算器.html", ["s-rl", "贷款利率"]),
+    ):
+        text = (ROOT / fname).read_text(encoding="utf-8")
+        ok = all(k in text for k in keys)
+        if not ok:
+            failures += 1
+        check(f"{fname} 含贷款利率控件", ok)
+
     print("\n" + "=" * 60)
     print(f"失败 {failures} 项" if failures else "全部通过")
     print("=" * 60)
