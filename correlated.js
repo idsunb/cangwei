@@ -893,9 +893,9 @@ document.querySelectorAll("[data-one]").forEach((btn) => {
       future: { p1: 0.5, r1: -1, r2: 3, r0: 0, lev: false, short: false, M: 2 },
       opt: { p1: 0.7, r1: -1, r2: 3, r0: 0, lev: false, short: false, M: 2 },
       dice: { p1: 1 / 3, r1: -1, r2: 1, r0: 0, lev: false, short: false, M: 2 },
-      lev: { p1: 0.5, r1: 0.08, r2: -0.05, r0: 0, lev: true, short: false, M: 5, rb: 0.02 },
-      // 卖空例: 资产可能 +5% / −8%，卖空赚跌亏涨; r_b 借券费
-      short: { p1: 0.5, r1: 0.05, r2: -0.08, r0: 0, lev: false, short: true, M: 2, rb: 0.02 },
+      lev: { p1: 0.5, r1: 0.08, r2: -0.05, r0: 0, lev: true, short: false, M: 5, rb: 0 },
+      // 卖空例: 资产可能 +5% / −8%；默认 r_b=0
+      short: { p1: 0.5, r1: 0.05, r2: -0.08, r0: 0, lev: false, short: true, M: 2, rb: 0 },
     }[btn.getAttribute("data-one")];
     document.getElementById("o-p1").value = e.p1;
     document.getElementById("o-p2").value = 1 - e.p1;
