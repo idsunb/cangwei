@@ -215,7 +215,7 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
         <input id="n-nu" type="number" value="5" step="1" min="2" max="50" />
       </div>
       <button class="primary" id="n-run-2">按此方式重新生成联合表</button>
-      <span class="sub" style="margin:0 0 0 8px">copula 决定 ρ 如何变成联合概率（不改矩阵里的 ρ）</span>
+      <span class="sub" style="margin:0 0 0 8px">copula 决定 ρ 如何变成联合概率；ν 越小尾部同跌越强。两状态对半开时 ν 影响很小，宜用含「暴跌档」的多状态（如 10% 暴跌）</span>
     </div>
     <p class="src">相关矩阵只刻画两两相关；完整联合由高斯 copula 补全（N&gt;2 时联合不唯一）。求解方法与主计算器一致：爬山 / 梯度 / §3.8 初值。</p>
   </section>

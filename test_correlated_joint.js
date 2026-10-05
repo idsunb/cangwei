@@ -286,5 +286,50 @@ if (typeof jointFromTCopula === "function" && typeof stressCorr === "function") 
   check("t-copula/stressCorr 已导出", false);
 }
 
+// χ² 抽样矩 + t-copula 尾部随 ν 单调
+{
+  const rngX = makeRng(1);
+  let s = 0, s2 = 0, n = 20000;
+  for (let i = 0; i < n; i++) {
+    const x = chi2Sample(5, rngX);
+    s += x;
+    s2 += x * x;
+  }
+  const mean = s / n, varr = s2 / n - mean * mean;
+  check("chi2(5) 均值≈5", Math.abs(mean - 5) < 0.15, mean.toFixed(4));
+  check("chi2(5) 方差≈10", Math.abs(varr - 10) < 1.0, varr.toFixed(4));
+
+  const margT3 = [
+    {
+      name: "A",
+      states: [
+        { p: 0.1, r: -0.3 },
+        { p: 0.7, r: 0 },
+        { p: 0.2, r: 0.25 },
+      ],
+    },
+    {
+      name: "B",
+      states: [
+        { p: 0.1, r: -0.35 },
+        { p: 0.7, r: 0.02 },
+        { p: 0.2, r: 0.2 },
+      ],
+    },
+  ];
+  const corr3 = [[1, 0.5], [0.5, 1]];
+  const pCC = (j) =>
+    j.filter((r) => r.states[0] === 0 && r.states[1] === 0).reduce((a, b) => a + b.p, 0);
+  const pG = pCC(jointFromCopula(margT3, corr3, 20000, 7));
+  const p2 = pCC(jointFromTCopula(margT3, corr3, 2, 20000, 7));
+  const p10 = pCC(jointFromTCopula(margT3, corr3, 15, 20000, 7));
+  check("t ν=2 双杀 > 高斯", p2 > pG + 0.005, "t2=" + p2.toFixed(4) + " g=" + pG.toFixed(4));
+  check("t ν=2 双杀 > t ν=15", p2 > p10 - 0.002, "t2=" + p2.toFixed(4) + " t15=" + p10.toFixed(4));
+  // 边际不被破坏
+  const j5 = jointFromTCopula(margT3, corr3, 5, 20000, 7);
+  const m0 = j5.reduce((a, r) => a + (r.states[0] === 0 ? r.p : 0), 0);
+  check("t-copula 边际≈0.1", Math.abs(m0 - 0.1) < 0.03, m0.toFixed(4));
+}
+
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
 process.exit(fail ? 1 : 0);

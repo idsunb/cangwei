@@ -258,28 +258,45 @@ function lgamma(z) {
   return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
 }
 
-/** χ² 抽样（正态平方和；ν 可为非整数，用 Gamma） */
+/** χ² 抽样: 整数 ν 用正态平方和; 大 ν 用 Wilson–Hilferty; 其余 Marsaglia-Tsang */
 function chi2Sample(nu, rng) {
-  // Marsaglia: Gamma(nu/2, 2) = chi2(nu)
-  const k = nu / 2;
-  if (k >= 1) {
-    const a = Math.sqrt(2 * k - 1);
-    for (;;) {
-      let u, v, y;
-      do {
-        u = rng();
-        v = rng();
-        y = Math.sqrt(-2 * Math.log(Math.max(u, 1e-12))) * Math.cos(2 * Math.PI * v);
-      } while (!(a + y > 0));
-      const x = a + y;
+  const k = Math.round(nu);
+  if (Math.abs(nu - k) < 1e-9 && k >= 1 && k <= 128) {
+    let v = 0;
+    for (let i = 0; i < k; i++) {
+      const u1 = Math.max(1e-12, rng());
       const u2 = rng();
-      const xv = x * x;
-      if (u2 <= 1 - 0.0331 * xv * xv) return xv;
-      if (Math.log(u2) <= 0.5 * xv + k * (1 - xv + Math.log(xv))) return xv;
+      const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      v += z * z;
     }
+    return v;
   }
-  // k<1: Gamma(k,2) = Gamma(k+1,2)*U^{1/k}
-  return chi2Sample(nu + 2, rng) * Math.pow(Math.max(rng(), 1e-12), 2 / nu);
+  if (nu >= 30) {
+    // Wilson–Hilferty: (χ²/ν)^{1/3} ≈ 1 - 2/(9ν) + z√(2/(9ν))
+    const u = Math.max(1e-12, rng());
+    const v = rng();
+    const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    const x = 1 - 2 / (9 * nu) + z * Math.sqrt(2 / (9 * nu));
+    return Math.max(1e-12, nu * x * x * x);
+  }
+  // Marsaglia-Tsang: χ²(ν) = 2 · Gamma(ν/2, 1),  d = ν/2 − 1/3
+  const a = nu / 2;
+  const d = a - 1 / 3;
+  const c = 1 / Math.sqrt(9 * d);
+  for (let tries = 0; tries < 2000; tries++) {
+    let x, v;
+    do {
+      const u1 = Math.max(1e-12, rng());
+      const u2 = rng();
+      x = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      v = 1 + c * x;
+    } while (v <= 0);
+    v = v * v * v;
+    const u = Math.max(1e-12, rng());
+    if (u < 1 - 0.0331 * x * x * x * x) return 2 * d * v;
+    if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return 2 * d * v;
+  }
+  return Math.max(1e-12, nu);
 }
 
 /**
