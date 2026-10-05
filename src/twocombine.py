@@ -36,8 +36,16 @@ dL_df2 = sp.diff(L, f2)
 print(f"dL_df1: {dL_df1}")
 print(f"dL_df2: {dL_df2}")
 
-# #求解方程 dL_df1 = 0 和 dL_df2 = 0
-# critical_points = sp.solve([dL_df1, dL_df2], [f1, f2])
+#根据偏导数求解二元方程组 dL_df1 = 0, dL_df2 = 0
+
+
+
+
+
+critical_points = sp.solve([dL_df1, dL_df2], [f1, f2])
+
+print(f"critical_points: {critical_points}")
+
 
 
 

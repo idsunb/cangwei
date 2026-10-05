@@ -37,7 +37,9 @@ print(f_star)
 # print(expr_together.evalf())
 
 # p=0.3 r1=0.3 r2=0.05 时 f等于
-print(f_star.evalf(subs={p: 0.6, r1: 0.2, r2: -0.05}))
+print(f_star.evalf(subs={p: 0.5, r1: 0.08, r2: -0.05}))
+
+
 
 
 #用蒙特卡洛模拟增长，并做出图形
@@ -62,11 +64,11 @@ money_list = [initial_money]
 # 进行模拟
 
 
-f = float(f_star.evalf(subs={p: 0.6, r1: 0.2, r2: -0.15}))
+f = float(f_star.evalf(subs={p: 0.5, r1: 0.08, r2: -0.05}))
 print('f:', f)
 
 r1 = 0.2
-r2 = -0.15
+r2 = -0.1
 p = 0.6
 
 count = 0
