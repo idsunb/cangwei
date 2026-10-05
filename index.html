@@ -146,7 +146,7 @@ H = Σᵢ Pᵢ log₂( q₀R₀ + qₐRᵢₐ + qᵦRᵢᵦ )</div>
 
   <!-- ============ 多证券 ============ -->
   <section class="panel" id="panel-multi">
-    <h2>多证券：相关矩阵 + 高斯 Copula</h2>
+    <h2>多证券：相关矩阵 + 高斯 / t-copula</h2>
     <p class="sub">每种证券<strong>状态数可不同</strong>（如 A 2 态、B 3 态）；相关矩阵 R 须对称、对角为 1。用高斯 copula（分位阈值）生成联合概率，再求最优仓位。</p>
     <div class="formula">Z ~ N(0, R)  →  Uₖ=Φ(Zₖ)  →  状态ₖ = j  若 cutₖ[j] &lt; Uₖ ≤ cutₖ[j+1]
   cut 由各资产状态概率的累积分布给出
