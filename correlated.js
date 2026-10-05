@@ -1691,6 +1691,7 @@ document.querySelectorAll("[data-preset]").forEach((btn) => {
 });
 
 document.getElementById("n-run").addEventListener("click", runMulti);
+document.getElementById("n-run-2").addEventListener("click", runMulti);
 document.getElementById("n-compare").addEventListener("click", runMultiCompare);
 ["n-r0", "n-M", "n-rl", "n-rb", "n-cap", "n-nu"].forEach((id) => {
   const el = document.getElementById(id);
