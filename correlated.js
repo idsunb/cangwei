@@ -1697,23 +1697,15 @@ function runRhoScan() {
     ctx.lineTo(pad.l, H - pad.b);
     ctx.lineTo(W - pad.r, H - pad.b);
     ctx.stroke();
-    ctx.strokeStyle = "#0f5c4c";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    data.forEach((d, i) => {
-      const px = x(d.rho), py = y(d.H);
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    });
-    ctx.stroke();
-    // 画出每一条 q_k 曲线（不同颜色）
+    // 仅画各资产 q_k*(ρ)，不画 H
     const nAsset = data[0].qs.length;
-    const qColors = ["#8a3b12", "#1f6fb2", "#6b4c9a", "#b8860b", "#2e7d32", "#c2185b"];
+    const qColors = ["#0f5c4c", "#8a3b12", "#1f6fb2", "#6b4c9a", "#b8860b", "#2e7d32", "#c2185b"];
     for (let k = 0; k < nAsset; k++) {
       ctx.strokeStyle = qColors[k % qColors.length];
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 2;
       ctx.beginPath();
       data.forEach((d, i) => {
-        const px = x(d.rho), py = y(d.qs[k] * (yMax - yMin) * 0.3 + yMin);
+        const px = x(d.rho), py = y(d.qs[k] * (yMax - yMin) * 0.85 + yMin);
         i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
       });
       ctx.stroke();
@@ -1721,14 +1713,11 @@ function runRhoScan() {
     ctx.fillStyle = "#6b6560";
     ctx.fillText("ρ=-1", pad.l, H - pad.b + 16);
     ctx.fillText("ρ=1", W - pad.r - 24, H - pad.b + 16);
-    ctx.fillStyle = "#0f5c4c";
-    ctx.fillText("H*(ρ)", pad.l + 4, pad.t + 12);
-    // 图例
-    let lx = pad.l + 70;
+    let lx = pad.l + 6;
     for (let k = 0; k < nAsset; k++) {
       ctx.fillStyle = qColors[k % qColors.length];
       ctx.fillText(`q${k + 1}*(ρ)`, lx, pad.t + 12);
-      lx += 70;
+      lx += 72;
     }
 
     let th = "<thead><tr><th>ρ</th><th>H*</th>";
