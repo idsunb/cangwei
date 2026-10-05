@@ -262,6 +262,18 @@ canvas {
   gap: 8px;
   align-items: end;
 }
+/* 宽表格/相关矩阵可横向滑动 */
+#n-corr, #n-corr .corr-table, .corr-table {
+  max-width: 100%;
+}
+#n-corr { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table {
+  display: table;
+  max-width: 100%;
+}
+.panel table, #m-compare-table, #s-table, #n-joint, #t-joint, #n-weights, #t-weights, #o-weights {
+  overflow-x: auto;
+}
 .corr-table input {
   width: 72px;
   text-align: center;
@@ -279,6 +291,41 @@ footer {
   color: var(--muted);
   font-size: 12px;
 }
-@media (max-width: 640px) {
-  .multi-row { grid-template-columns: 1fr 1fr; }
+@media (max-width: 720px) {
+  body { font-size: 14px; }
+  header { padding: 18px 14px 14px; }
+  header h1 { font-size: 18px; }
+  main { padding: 14px 10px 48px; }
+  .panel { padding: 12px; }
+  .formula { font-size: 11px; padding: 8px 10px; }
+  .tab { padding: 7px 10px; font-size: 12px; }
+  .row {
+    gap: 8px;
+    margin: 8px 0 12px;
+  }
+  .row > * { flex: 1 1 140px; min-width: 0; }
+  .row button.primary,
+  .row button.ghost { width: 100%; }
+  .grid, .grid2 {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .card { padding: 8px; }
+  /* 状态/概率/收益 两列铺满，避免 4 列挤爆 */
+  .multi-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .multi-row > div:first-child { grid-column: 1 / -1; }
+  .corr-table input { width: 56px; padding: 6px 4px; }
+  #n-corr input { width: 52px; }
+  .results {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .metric .v { font-size: 16px; }
+  table { font-size: 11px; }
+  th, td { padding: 6px 4px; }
+  .note { font-size: 12px; }
+  canvas { height: 200px; }
 }
