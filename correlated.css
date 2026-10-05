@@ -250,6 +250,11 @@ canvas {
   font-family: var(--sans);
 }
 .chip:hover { border-color: var(--accent); color: var(--accent); }
+.copula-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 .multi-rows { display: flex; flex-direction: column; gap: 8px; }
 .multi-row {
   display: grid;

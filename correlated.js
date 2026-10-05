@@ -1462,7 +1462,7 @@ function runMulti() {
     const corr = projectCorrPSD(corrRaw, n);
     corrState = corrRaw.map((r) => r.slice());
     renderMultiTables();
-    const cop = document.getElementById("n-copula").value || "gauss";
+    const cop = (typeof copulaMode !== "undefined" && copulaMode) || "gauss";
     const nu = Math.max(2, num("n-nu") || 5);
     const joint = cop === "t"
       ? jointFromTCopula(margState, corr, nu, 8000, 42)
@@ -1535,7 +1535,7 @@ function runMultiCompare() {
     const corr = projectCorrPSD(corrRaw, n);
     corrState = corrRaw.map((r) => r.slice());
     renderMultiTables();
-    const cop = document.getElementById("n-copula").value || "gauss";
+    const cop = (typeof copulaMode !== "undefined" && copulaMode) || "gauss";
     const nu = Math.max(2, num("n-nu") || 5);
     const joint = cop === "t"
       ? jointFromTCopula(margState, corr, nu, 8000, 42)
@@ -1698,10 +1698,23 @@ document.getElementById("n-compare").addEventListener("click", runMultiCompare);
   el.addEventListener("change", runMulti);
   el.addEventListener("input", runMulti);
 });
-["n-lev", "n-short", "n-method", "n-copula"].forEach((id) => {
+["n-lev", "n-short", "n-method"].forEach((id) => {
   const el = document.getElementById(id);
   if (el) el.addEventListener("change", runMulti);
 });
+
+/** copula 模式: gauss | t（矩阵 ρ 不变，只改缠绕） */
+let copulaMode = "gauss";
+function setCopulaMode(mode) {
+  copulaMode = mode;
+  const bg = document.getElementById("n-cop-gauss");
+  const bt = document.getElementById("n-cop-t");
+  if (bg) bg.classList.toggle("active", mode === "gauss");
+  if (bt) bt.classList.toggle("active", mode === "t");
+  runMulti();
+}
+document.getElementById("n-cop-gauss").addEventListener("click", () => setCopulaMode("gauss"));
+document.getElementById("n-cop-t").addEventListener("click", () => setCopulaMode("t"));
 
 /** 所有非对角 ρ 同步 ±step，并自动求解 */
 function stepAllRho(delta) {
