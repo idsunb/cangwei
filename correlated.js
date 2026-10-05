@@ -1671,9 +1671,11 @@ function runRhoScan() {
       let res;
       if (useMulti) {
         const n = scanSource.marg.length;
-        const corr = scanSource.struct.map((row, a) =>
-          row.map((v, b) => (a === b ? 1 : Math.max(-0.99, Math.min(0.99, rho * v))))
+        let corr = scanSource.struct.map((row, a) =>
+          row.map((v, b) => (a === b ? 1 : Math.max(-0.98, Math.min(0.98, rho * v))))
         );
+        // ρ=±1 时矩阵奇异 → 投影到合法 PSD
+        corr = projectCorrPSD(corr, n);
         const joint = scanSource.cop === "t"
           ? jointFromTCopula(scanSource.marg, corr, scanSource.nu, 2500, 42 + i)
           : jointFromCopula(scanSource.marg, corr, 2500, 42 + i);
@@ -1703,23 +1705,32 @@ function runRhoScan() {
       i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     });
     ctx.stroke();
-    ctx.strokeStyle = "#8a3b12";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    data.forEach((d, i) => {
-      const px = x(d.rho), py = y(d.qs[0] * (yMax - yMin) * 0.3 + yMin);
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    });
-    ctx.stroke();
+    // 画出每一条 q_k 曲线（不同颜色）
+    const nAsset = data[0].qs.length;
+    const qColors = ["#8a3b12", "#1f6fb2", "#6b4c9a", "#b8860b", "#2e7d32", "#c2185b"];
+    for (let k = 0; k < nAsset; k++) {
+      ctx.strokeStyle = qColors[k % qColors.length];
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      data.forEach((d, i) => {
+        const px = x(d.rho), py = y(d.qs[k] * (yMax - yMin) * 0.3 + yMin);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+    }
     ctx.fillStyle = "#6b6560";
     ctx.fillText("ρ=-1", pad.l, H - pad.b + 16);
     ctx.fillText("ρ=1", W - pad.r - 24, H - pad.b + 16);
     ctx.fillStyle = "#0f5c4c";
     ctx.fillText("H*(ρ)", pad.l + 4, pad.t + 12);
-    ctx.fillStyle = "#8a3b12";
-    ctx.fillText("q1*(ρ)（缩放）", pad.l + 4, pad.t + 26);
+    // 图例
+    let lx = pad.l + 70;
+    for (let k = 0; k < nAsset; k++) {
+      ctx.fillStyle = qColors[k % qColors.length];
+      ctx.fillText(`q${k + 1}*(ρ)`, lx, pad.t + 12);
+      lx += 70;
+    }
 
-    const nAsset = data[0].qs.length;
     let th = "<thead><tr><th>ρ</th><th>H*</th>";
     for (let k = 0; k < nAsset; k++) th += `<th>q${k + 1}*</th>`;
     th += "<th>r_g</th></tr></thead><tbody>";
