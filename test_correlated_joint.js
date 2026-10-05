@@ -21,7 +21,13 @@ const code = [
   grab("pickState"),
   grab("normalizeMarginals"),
   grab("jointFromCopula"),
+  grab("jointFromTCopula"),
   grab("jointIndependent"),
+  grab("stressCorr"),
+  grab("tCdf"),
+  grab("ibeta"),
+  grab("lgamma"),
+  grab("chi2Sample"),
   grab("portReturns"),
   grab("portReturnsFull"),
   grab("splitPosition"),
@@ -252,6 +258,32 @@ if (typeof fillWeightCompareTable === "function") {
     "q0=" + o0.weights[0].toFixed(4) + " q0.5=" + o5.weights[0].toFixed(4));
   check("ρ=0.5 的 H 更低", o5.H < o0.H - 0.001,
     "H0=" + o0.H.toFixed(4) + " H5=" + o5.H.toFixed(4));
+}
+
+// t-copula 与危机 ρ 加成
+if (typeof jointFromTCopula === "function" && typeof stressCorr === "function") {
+  const margT = [
+    { name: "A", states: [{ p: 0.5, r: -0.1 }, { p: 0.5, r: 0.3 }] },
+    { name: "B", states: [{ p: 0.5, r: -0.15 }, { p: 0.5, r: 0.4 }] },
+  ];
+  const jt = jointFromTCopula(margT, [[1, 0.5], [0.5, 1]], 4, 8000, 42);
+  const jg = jointFromCopula(margT, [[1, 0.5], [0.5, 1]], 8000, 42);
+  check("t-copula 概率和=1", Math.abs(jt.reduce((a, b) => a + b.p, 0) - 1) < 1e-9);
+  // 厚尾: t-copula 同涨同跌概率应 >= 高斯
+  const pHH_t = jt.find((r) => r.states[0] === 1 && r.states[1] === 1).p;
+  const pHH_g = jg.find((r) => r.states[0] === 1 && r.states[1] === 1).p;
+  check("t-copula 同涨跌 ≥ 高斯", pHH_t >= pHH_g - 0.02,
+    "t=" + pHH_t.toFixed(4) + " g=" + pHH_g.toFixed(4));
+  const oT = solveCorrelated(jt, 0, false, false, 1, "grad", 0, 0);
+  const oG = solveCorrelated(jg, 0, false, false, 1, "grad", 0, 0);
+  check("t-copula H* ≤ 高斯", oT.H <= oG.H + 0.005,
+    "tH=" + oT.H.toFixed(4) + " gH=" + oG.H.toFixed(4));
+  const s = stressCorr([[1, 0.2], [0.2, 1]], 0.3);
+  check("Δρ 加成", Math.abs(s[0][1] - 0.5) < 1e-9, "got " + s[0][1]);
+  const s2 = stressCorr([[1, 0.9], [0.9, 1]], 0.3);
+  check("Δρ 夹紧到 0.99", s2[0][1] <= 0.99 + 1e-9, "got " + s2[0][1]);
+} else {
+  check("t-copula/stressCorr 已导出", false);
 }
 
 console.log(fail ? `失败 ${fail} 项` : "全部通过");

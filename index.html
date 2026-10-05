@@ -162,6 +162,21 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
       <div style="min-width:120px"><label>贷款利率 r₀′</label><input id="n-rl" type="number" value="0" step="0.01" /></div>
       <div style="min-width:120px"><label>借券费率 r_b</label><input id="n-rb" type="number" value="0" step="0.005" /></div>
       <div style="min-width:120px"><label>自有资金（元）</label><input id="n-cap" type="number" value="100000" step="1000" /></div>
+      <div style="min-width:140px">
+        <label>联合生成方式</label>
+        <select id="n-copula">
+          <option value="gauss">高斯 copula</option>
+          <option value="t">t-copula（尾部同跌）</option>
+        </select>
+      </div>
+      <div style="min-width:120px">
+        <label>t 自由度 ν</label>
+        <input id="n-nu" type="number" value="5" step="1" min="2" max="50" />
+      </div>
+      <div style="min-width:130px">
+        <label>危机相关加成 Δρ</label>
+        <input id="n-drho" type="number" value="0" step="0.05" min="-0.5" max="0.5" />
+      </div>
       <label class="check"><input type="checkbox" id="n-lev" /> 允许透支</label>
       <label class="check"><input type="checkbox" id="n-short" /> 允许卖空</label>
       <div style="min-width:170px">

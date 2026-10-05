@@ -199,6 +199,158 @@ function pickState(u, cuts) {
   return cuts.length - 2;
 }
 
+/** 危机相关加成: 非对角 ρ += dRho, 并夹紧到 [-0.99,0.99] */
+function stressCorr(corr, dRho) {
+  if (!dRho) return corr.map((r) => r.slice());
+  return corr.map((row, i) =>
+    row.map((v, j) => {
+      if (i === j) return 1;
+      return Math.max(-0.99, Math.min(0.99, v + dRho));
+    })
+  );
+}
+
+/** Student-t CDF（正则化不完全 Beta） */
+function tCdf(t, nu) {
+  if (!isFinite(t)) return t > 0 ? 1 : 0;
+  const x = nu / (nu + t * t);
+  const p = 0.5 * ibeta(x, nu / 2, 0.5);
+  return t > 0 ? 1 - p : p;
+}
+
+/** 正则化不完全 Beta I_x(a,b)（连分式，Numerical Recipes 风格） */
+function ibeta(x, a, b) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const lbeta = lgamma(a) + lgamma(b) - lgamma(a + b);
+  const front = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lbeta) / a;
+  // Lentz 连分式
+  let f = 1, c = 1, d = 0;
+  for (let i = 0; i <= 200; i++) {
+    const m = Math.floor(i / 2);
+    let num;
+    if (i === 0) num = 1;
+    else if (i % 2 === 0) num = (m * (b - m) * x) / ((a + 2 * m - 1) * (a + 2 * m));
+    else num = -((a + m) * (a + b + m) * x) / ((a + 2 * m) * (a + 2 * m + 1));
+    d = 1 + num * d;
+    if (Math.abs(d) < 1e-30) d = 1e-30;
+    d = 1 / d;
+    c = 1 + num / c;
+    if (Math.abs(c) < 1e-30) c = 1e-30;
+    const cd = c * d;
+    f *= cd;
+    if (Math.abs(1 - cd) < 1e-10) break;
+  }
+  return front * (f - 1);
+}
+
+function lgamma(z) {
+  const g = [
+    676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012,
+    9.9843695780195716e-6, 1.5056327351493116e-7,
+  ];
+  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z);
+  z -= 1;
+  let x = 0.99999999999980993;
+  for (let i = 0; i < 8; i++) x += g[i] / (z + i + 1);
+  const t = z + 7.5;
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+}
+
+/** χ² 抽样（正态平方和；ν 可为非整数，用 Gamma） */
+function chi2Sample(nu, rng) {
+  // Marsaglia: Gamma(nu/2, 2) = chi2(nu)
+  const k = nu / 2;
+  if (k >= 1) {
+    const a = Math.sqrt(2 * k - 1);
+    for (;;) {
+      let u, v, y;
+      do {
+        u = rng();
+        v = rng();
+        y = Math.sqrt(-2 * Math.log(Math.max(u, 1e-12))) * Math.cos(2 * Math.PI * v);
+      } while (!(a + y > 0));
+      const x = a + y;
+      const u2 = rng();
+      const xv = x * x;
+      if (u2 <= 1 - 0.0331 * xv * xv) return xv;
+      if (Math.log(u2) <= 0.5 * xv + k * (1 - xv + Math.log(xv))) return xv;
+    }
+  }
+  // k<1: Gamma(k,2) = Gamma(k+1,2)*U^{1/k}
+  return chi2Sample(nu + 2, rng) * Math.pow(Math.max(rng(), 1e-12), 2 / nu);
+}
+
+/**
+ * t-copula: 多元 t → 边际分位 → 离散状态
+ * nu 越小尾部越厚（危机同跌更强）; nu→∞ ≈ 高斯
+ */
+function jointFromTCopula(marginals, corr, nu, nSamples = 8000, seed = 42) {
+  const marg = normalizeMarginals(marginals);
+  const n = marg.length;
+  const L = cholesky(corr);
+  if (!L) throw new Error("相关矩阵非正定，请先投影到 PSD");
+  const cuts = marg.map((m) => marginalCuts(m.states));
+  const dims = marg.map((m) => m.states.length);
+  const total = dims.reduce((a, b) => a * b, 1);
+  if (total > 400) throw new Error(`联合情景数 ${total} 过大（>400）`);
+  const counts = new Array(total).fill(0);
+  const rng = makeRng(seed);
+  const eps = new Array(n).fill(0);
+  const nPairs = Math.max(1, Math.floor(nSamples / 2));
+  const nUsed = nPairs * 2;
+  for (let s = 0; s < nPairs; s++) {
+    for (let i = 0; i < n; i++) {
+      const u1 = Math.max(1e-12, rng());
+      const u2 = rng();
+      const r = Math.sqrt(-2 * Math.log(u1));
+      const th = 2 * Math.PI * u2;
+      eps[i] = r * Math.cos(th);
+    }
+    for (const sign of [1, -1]) {
+      // 多元 t: T = Z / sqrt(V/nu), V~chi2_nu
+      const V = chi2Sample(nu, rng);
+      const scale = Math.sqrt(nu / Math.max(V, 1e-12));
+      let idx = 0;
+      for (let k = 0; k < n; k++) {
+        let zk = 0;
+        for (let j = 0; j <= k; j++) zk += L[k][j] * (sign * eps[j]);
+        const tk = zk * scale;
+        const u = tCdf(tk, nu);
+        const st = pickState(u, cuts[k]);
+        idx = idx * dims[k] + st;
+      }
+      counts[idx] += 1;
+    }
+  }
+  const rows = [];
+  for (let idx = 0; idx < total; idx++) {
+    const p = counts[idx] / nUsed;
+    if (p <= 0) continue;
+    let t = idx;
+    const tmp = [];
+    for (let k = n - 1; k >= 0; k--) {
+      tmp[k] = t % dims[k];
+      t = Math.floor(t / dims[k]);
+    }
+    const sa = tmp.slice();
+    const ra = sa.map((st, k) => marg[k].states[st].r);
+    rows.push({
+      p,
+      states: sa,
+      returns: ra,
+      label: sa
+        .map((st, k) => {
+          const nm = marg[k].name;
+          return nm + (marg[k].states.length === 2 ? (st ? "涨" : "跌") : "档" + (st + 1));
+        })
+        .join("·"),
+    });
+  }
+  return rows;
+}
+
 /**
  * 高斯 copula：各资产状态数可不同 + 相关矩阵 → 联合概率。
  * marginals[k] = { name?, states: [{p, r}, ...] }
@@ -1306,11 +1458,16 @@ function runMulti() {
     const M = num("n-M") || 1;
     const method = document.getElementById("n-method").value || "grad";
     const n = margState.length;
-    const corr = projectCorrPSD(corrState, n);
-    corrState = corr.map((r) => r.slice());
+    const corrRaw = projectCorrPSD(corrState, n);
+    const dRho = num("n-drho") || 0;
+    const corr = stressCorr(projectCorrPSD(corrRaw, n), dRho);
+    corrState = corrRaw.map((r) => r.slice());
     renderMultiTables();
-
-    const joint = jointFromCopula(margState, corr, 8000, 42);
+    const cop = document.getElementById("n-copula").value || "gauss";
+    const nu = Math.max(2, num("n-nu") || 5);
+    const joint = cop === "t"
+      ? jointFromTCopula(margState, corr, nu, 8000, 42)
+      : jointFromCopula(margState, corr, 8000, 42);
     const ind = jointIndependent(margState);
     const rl = num("n-rl");
     const rb = num("n-rb");
@@ -1336,6 +1493,8 @@ function runMulti() {
         { k: "H*（独立对照）", v: fmt(resInd.H, 4) },
         { k: "标的合计", v: pct(res.assetSum) },
         { k: "联合情景", v: String(joint.length) },
+        { k: "copula", v: cop === "t" ? "t ν=" + fmt(nu, 0) : "高斯" },
+        { k: "Δρ 加成", v: fmt(dRho, 2) },
       ],
     });
 
@@ -1351,10 +1510,15 @@ function runMulti() {
 
     const dH = res.H - resInd.H;
     document.getElementById("n-note").innerHTML =
-      `状态数 ${dims.join("×")} = ${dims.reduce((a, b) => a * b, 1)} 格联合；相关 copula 有效情景 ${joint.length}。` +
-      `方法：<b>${res.method}</b>。相对独立：ΔH = ${fmt(dH, 4)} bit` +
+      `状态数 ${dims.join("×")} = ${dims.reduce((a, b) => a * b, 1)} 格联合；` +
+      (cop === "t"
+        ? `t-copula ν=${fmt(nu, 0)}（尾部同跌更强）`
+        : `高斯 copula`) +
+      (Math.abs(dRho) > 1e-9 ? `；危机加成 Δρ=${fmt(dRho, 2)}` : "") +
+      `，有效情景 ${joint.length}。方法：<b>${res.method}</b>。` +
+      `相对独立：ΔH = ${fmt(dH, 4)} bit` +
       (dH < -1e-4
-        ? " —— 正相关削弱分散红利。"
+        ? " —— 正相关/厚尾削弱分散红利。"
         : dH > 1e-4
         ? " —— 负相关增强对冲，几何增长更好。"
         : " —— 与独立接近。");
@@ -1370,10 +1534,16 @@ function runMultiCompare() {
     const sh = document.getElementById("n-short").checked;
     const M = num("n-M") || 1;
     const n = margState.length;
-    const corr = projectCorrPSD(corrState, n);
-    corrState = corr.map((r) => r.slice());
+    const corrRaw = projectCorrPSD(corrState, n);
+    const dRho = num("n-drho") || 0;
+    const corr = stressCorr(projectCorrPSD(corrRaw, n), dRho);
+    corrState = corrRaw.map((r) => r.slice());
     renderMultiTables();
-    const joint = jointFromCopula(margState, corr, 8000, 42);
+    const cop = document.getElementById("n-copula").value || "gauss";
+    const nu = Math.max(2, num("n-nu") || 5);
+    const joint = cop === "t"
+      ? jointFromTCopula(margState, corr, nu, 8000, 42)
+      : jointFromCopula(margState, corr, 8000, 42);
     const rl2 = num("n-rl");
     const rb2 = num("n-rb");
     const cmp = compareCorrelated(joint, r0, sh, lev, M,
@@ -1526,13 +1696,13 @@ document.querySelectorAll("[data-preset]").forEach((btn) => {
 
 document.getElementById("n-run").addEventListener("click", runMulti);
 document.getElementById("n-compare").addEventListener("click", runMultiCompare);
-["n-r0", "n-M", "n-rl", "n-rb", "n-cap"].forEach((id) => {
+["n-r0", "n-M", "n-rl", "n-rb", "n-cap", "n-nu", "n-drho"].forEach((id) => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener("change", runMulti);
   el.addEventListener("input", runMulti);
 });
-["n-lev", "n-short", "n-method"].forEach((id) => {
+["n-lev", "n-short", "n-method", "n-copula"].forEach((id) => {
   const el = document.getElementById(id);
   if (el) el.addEventListener("change", runMulti);
 });
