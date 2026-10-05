@@ -1208,10 +1208,12 @@ function fillResultCards(el, opts) {
 }
 
 function fillJointTable(tableEl, rows, n) {
+  // 概率从大到小显示
+  const sorted = rows.slice().sort((a, b) => b.p - a.p);
   let th = "<thead><tr><th>情景</th><th>概率 P</th>";
   for (let k = 0; k < n; k++) th += `<th>${k === 0 ? "A" : k === 1 ? "B" : "S" + k} 原始收益</th>`;
   th += "<th>等权组合收益</th><th>组合收益(q*)</th></tr></thead><tbody>";
-  rows.forEach((r) => {
+  sorted.forEach((r) => {
     const label = r.label || r.states.join("·");
     const eq = r.returns.reduce((a, b) => a + b, 0) / (r.returns.length || 1);
     th += `<tr><td>${label}</td><td>${fmt(r.p, 4)}</td>`;
@@ -1393,6 +1395,26 @@ function loadExample2x3() {
   renderMultiTables();
 }
 
+/** 约束 Σp=1，并按 p 从大到小排序 */
+function normalizeAndSortStates(states) {
+  let sum = 0;
+  states.forEach((s) => {
+    s.p = Math.max(0, parseFloat(s.p) || 0);
+    sum += s.p;
+  });
+  if (sum > 0) {
+    states.forEach((s) => {
+      s.p = s.p / sum;
+    });
+  } else if (states.length) {
+    states.forEach((s) => {
+      s.p = 1 / states.length;
+    });
+  }
+  states.sort((a, b) => b.p - a.p || b.r - a.r);
+  return states;
+}
+
 function renderMultiTables() {
   const n = margState.length;
   const mb = document.getElementById("n-marg");
@@ -1401,14 +1423,14 @@ function renderMultiTables() {
     const sumP = m.states.reduce((a, b) => a + (parseFloat(b.p) || 0), 0);
     mh += `<div class="card" style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <strong>${m.name}（${m.states.length} 态，Σp=${fmt(sumP, 4)}）</strong>
+        <strong>${m.name}（${m.states.length} 态，Σp=${fmt(sumP, 4)}${Math.abs(sumP - 1) > 1e-6 ? " → 已归一" : ""}）</strong>
         <span>
           <button class="ghost" data-madd="${k}">＋ 状态</button>
           ${m.states.length > 2 ? `<button class="ghost" data-mdelst="${k}">－ 状态</button>` : ""}
         </span>
       </div>`;
     mh += `<div class="multi-row" style="font-size:12px;color:var(--muted)">
-      <div>状态</div><div>概率 p</div><div>收益率 r</div><div></div></div>`;
+      <div>状态</div><div>概率 p（Σ=1，大→小）</div><div>收益率 r</div><div></div></div>`;
     m.states.forEach((st, i) => {
       mh += `<div class="multi-row">
         <div>#${i + 1}</div>
@@ -1424,12 +1446,21 @@ function renderMultiTables() {
     inp.addEventListener("change", () => {
       const [k, i, key] = inp.getAttribute("data-mg").split(",");
       margState[+k].states[+i][key] = parseFloat(inp.value);
+      // p 约束: Σ=1 + 按大小排序
+      normalizeAndSortStates(margState[+k].states);
+      renderMultiTables();
+    });
+    inp.addEventListener("blur", () => {
+      // 失焦再归一一次，防止未触发 change
+      const [k] = inp.getAttribute("data-mg").split(",");
+      normalizeAndSortStates(margState[+k].states);
     });
   });
   mb.querySelectorAll("[data-madd]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const k = +btn.getAttribute("data-madd");
       margState[k].states.push({ p: 0, r: 0.1 });
+      normalizeAndSortStates(margState[k].states);
       renderMultiTables();
     });
   });
@@ -1437,6 +1468,7 @@ function renderMultiTables() {
     btn.addEventListener("click", () => {
       const k = +btn.getAttribute("data-mdelst");
       margState[k].states.pop();
+      normalizeAndSortStates(margState[k].states);
       renderMultiTables();
     });
   });

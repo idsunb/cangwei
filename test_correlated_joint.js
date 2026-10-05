@@ -40,6 +40,7 @@ const code = [
   grab("fillWeightCompareTable"),
   grab("fillResultCards"),
   grab("fillJointTable"),
+  grab("normalizeAndSortStates"),
   grab("joint2x2"),
   "function fmt(x,d=4){return isFinite(x)?x.toFixed(d):String(x);}",
   "function pct(x,d=2){return isFinite(x)?(x*100).toFixed(d)+'%':String(x);}",
@@ -329,6 +330,27 @@ if (typeof jointFromTCopula === "function" && typeof stressCorr === "function") 
   const j5 = jointFromTCopula(margT3, corr3, 5, 20000, 7);
   const m0 = j5.reduce((a, r) => a + (r.states[0] === 0 ? r.p : 0), 0);
   check("t-copula 边际≈0.1", Math.abs(m0 - 0.1) < 0.03, m0.toFixed(4));
+}
+
+// Σp=1 与 p 降序
+if (typeof normalizeAndSortStates === "function") {
+  const st = [
+    { p: 0.2, r: 1 },
+    { p: 0.5, r: 2 },
+    { p: 0.3, r: 3 },
+  ];
+  normalizeAndSortStates(st);
+  const sum = st.reduce((a, b) => a + b.p, 0);
+  check("normalize Σp=1", Math.abs(sum - 1) < 1e-9, sum.toFixed(6));
+  check("p 降序排列", st[0].p >= st[1].p && st[1].p >= st[2].p,
+    st.map((x) => x.p.toFixed(3)).join(","));
+  check("最大 p 在首位", Math.abs(st[0].p - 0.5) < 1e-9, st[0].p.toFixed(3));
+  const st2 = [{ p: 1, r: 0 }, { p: 3, r: 1 }];
+  normalizeAndSortStates(st2);
+  check("归一缩放到 Σ=1", Math.abs(st2[0].p + st2[1].p - 1) < 1e-9);
+  check("缩放后仍降序", st2[0].p >= st2[1].p, st2.map((x) => x.p.toFixed(3)).join(","));
+} else {
+  check("normalizeAndSortStates 已导出", false);
 }
 
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
