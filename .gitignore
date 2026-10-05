@@ -15,3 +15,4 @@ Thumbs.db
 # 忽略 IDE/编辑器生成的文件
 .vscode/
 .idea/
+.vercel
