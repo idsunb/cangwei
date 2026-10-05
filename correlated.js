@@ -1701,8 +1701,20 @@ document.getElementById("n-compare").addEventListener("click", runMultiCompare);
 });
 ["n-lev", "n-short", "n-method", "n-copula"].forEach((id) => {
   const el = document.getElementById(id);
-  if (el) el.addEventListener("change", runMulti);
+  if (el) el.addEventListener("change", () => {
+    if (id === "n-copula") {
+      const wrap = document.getElementById("n-nu-wrap");
+      if (wrap) wrap.style.display = el.value === "t" ? "block" : "none";
+    }
+    runMulti();
+  });
 });
+// 初始: 高斯时不显示 ν
+(function initCopulaVis() {
+  const sel = document.getElementById("n-copula");
+  const wrap = document.getElementById("n-nu-wrap");
+  if (sel && wrap) wrap.style.display = sel.value === "t" ? "block" : "none";
+})();
 
 /** 所有非对角 ρ 同步 ±step，并自动求解 */
 function stepAllRho(delta) {
