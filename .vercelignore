@@ -1,0 +1,7 @@
+# 只部署静态页（避免 Vercel 误判为 Python 后端）
+**
+!index.html
+!correlated.js
+!correlated.css
+!仓位管理计算器.html
+!vercel.json

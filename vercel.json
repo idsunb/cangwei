@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": null,
+  "outputDirectory": ".",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "builds": [
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "correlated.js", "use": "@vercel/static" },
+    { "src": "correlated.css", "use": "@vercel/static" },
+    { "src": "仓位管理计算器.html", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/correlated.js", "dest": "/correlated.js" },
+    { "src": "/correlated.css", "dest": "/correlated.css" },
+    { "src": "/", "dest": "/index.html" },
+    { "src": "/仓位管理计算器.html", "dest": "/仓位管理计算器.html" },
+    { "src": "/index.html", "dest": "/index.html" }
+  ]
+}
