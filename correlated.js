@@ -1459,8 +1459,7 @@ function runMulti() {
     const method = document.getElementById("n-method").value || "grad";
     const n = margState.length;
     const corrRaw = projectCorrPSD(corrState, n);
-    const dRho = num("n-drho") || 0;
-    const corr = stressCorr(projectCorrPSD(corrRaw, n), dRho);
+    const corr = projectCorrPSD(corrRaw, n);
     corrState = corrRaw.map((r) => r.slice());
     renderMultiTables();
     const cop = document.getElementById("n-copula").value || "gauss";
@@ -1494,7 +1493,6 @@ function runMulti() {
         { k: "标的合计", v: pct(res.assetSum) },
         { k: "联合情景", v: String(joint.length) },
         { k: "copula", v: cop === "t" ? "t ν=" + fmt(nu, 0) : "高斯" },
-        { k: "Δρ 加成", v: fmt(dRho, 2) },
       ],
     });
 
@@ -1514,7 +1512,6 @@ function runMulti() {
       (cop === "t"
         ? `t-copula ν=${fmt(nu, 0)}（尾部同跌更强）`
         : `高斯 copula`) +
-      (Math.abs(dRho) > 1e-9 ? `；危机加成 Δρ=${fmt(dRho, 2)}` : "") +
       `，有效情景 ${joint.length}。方法：<b>${res.method}</b>。` +
       `相对独立：ΔH = ${fmt(dH, 4)} bit` +
       (dH < -1e-4
@@ -1535,8 +1532,7 @@ function runMultiCompare() {
     const M = num("n-M") || 1;
     const n = margState.length;
     const corrRaw = projectCorrPSD(corrState, n);
-    const dRho = num("n-drho") || 0;
-    const corr = stressCorr(projectCorrPSD(corrRaw, n), dRho);
+    const corr = projectCorrPSD(corrRaw, n);
     corrState = corrRaw.map((r) => r.slice());
     renderMultiTables();
     const cop = document.getElementById("n-copula").value || "gauss";
@@ -1696,7 +1692,7 @@ document.querySelectorAll("[data-preset]").forEach((btn) => {
 
 document.getElementById("n-run").addEventListener("click", runMulti);
 document.getElementById("n-compare").addEventListener("click", runMultiCompare);
-["n-r0", "n-M", "n-rl", "n-rb", "n-cap", "n-nu", "n-drho"].forEach((id) => {
+["n-r0", "n-M", "n-rl", "n-rb", "n-cap", "n-nu"].forEach((id) => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener("change", runMulti);
@@ -1706,6 +1702,23 @@ document.getElementById("n-compare").addEventListener("click", runMultiCompare);
   const el = document.getElementById(id);
   if (el) el.addEventListener("change", runMulti);
 });
+
+/** 所有非对角 ρ 同步 ±step，并自动求解 */
+function stepAllRho(delta) {
+  const n = margState.length;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      corrState[i][j] = Math.max(-0.99, Math.min(0.99, corrState[i][j] + delta));
+      corrState[j][i] = corrState[i][j];
+    }
+  }
+  corrState = projectCorrPSD(corrState, n);
+  renderMultiTables();
+  runMulti();
+}
+document.getElementById("n-rho-up").addEventListener("click", () => stepAllRho(0.1));
+document.getElementById("n-rho-down").addEventListener("click", () => stepAllRho(-0.1));
 document.getElementById("n-add").addEventListener("click", () => {
   initMulti(margState.length + 1);
   runMulti();

@@ -173,10 +173,6 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
         <label>t 自由度 ν</label>
         <input id="n-nu" type="number" value="5" step="1" min="2" max="50" />
       </div>
-      <div style="min-width:130px">
-        <label>危机相关加成 Δρ</label>
-        <input id="n-drho" type="number" value="0" step="0.05" min="-0.5" max="0.5" />
-      </div>
       <label class="check"><input type="checkbox" id="n-lev" /> 允许透支</label>
       <label class="check"><input type="checkbox" id="n-short" /> 允许卖空</label>
       <div style="min-width:170px">
@@ -201,6 +197,8 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
     <div class="row">
       <button class="ghost" id="n-corr-zero">全部 ρ=0（独立）</button>
       <button class="ghost" id="n-corr-pos">全部 ρ=0.5</button>
+      <button class="ghost" id="n-rho-up" title="所有非对角 ρ 同时 +0.1">ρ +0.1</button>
+      <button class="ghost" id="n-rho-down" title="所有非对角 ρ 同时 −0.1">ρ −0.1</button>
       <button class="ghost" id="n-corr-toeplitz" title="ρ(i,j)=0.5^|i−j|，相邻 0.5、隔一位 0.25…">近强远弱（0.5^距离）</button>
       <button class="ghost" id="n-psd" title="非法相关矩阵会导致 Cholesky 失败；点击将其收缩为合法（半正定）相关矩阵">校正非法相关矩阵</button>
     </div>
