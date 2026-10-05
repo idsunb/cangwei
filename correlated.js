@@ -1674,8 +1674,21 @@ function runRhoScan() {
         let corr = scanSource.struct.map((row, a) =>
           row.map((v, b) => (a === b ? 1 : Math.max(-0.98, Math.min(0.98, rho * v))))
         );
-        // ρ=±1 时矩阵奇异 → 投影到合法 PSD
         corr = projectCorrPSD(corr, n);
+        if (scanSource.compareCopulas) {
+          // 高斯实线 + t(ν=2) 虚线: 两套 q 都存进 d.qs / d.qsT
+          const jG = jointFromCopula(scanSource.marg, corr, 2500, 42 + i);
+          const resG = solveCorrelated(jG, scanSource.r0, scanSource.sh, scanSource.lev, scanSource.M,
+            "grad", scanSource.rLoan, scanSource.rBorrow);
+          const jT = jointFromTCopula(scanSource.marg, corr, 2, 2500, 42 + i);
+          const resT = solveCorrelated(jT, scanSource.r0, scanSource.sh, scanSource.lev, scanSource.M,
+            "grad", scanSource.rLoan, scanSource.rBorrow);
+          data.push({
+            rho, H: resG.H, qs: resG.weights.slice(), rg: resG.rg,
+            qsT: resT.weights.slice(), HT: resT.H,
+          });
+          continue;
+        }
         const joint = scanSource.cop === "t"
           ? jointFromTCopula(scanSource.marg, corr, scanSource.nu, 2500, 42 + i)
           : jointFromCopula(scanSource.marg, corr, 2500, 42 + i);
@@ -1697,37 +1710,53 @@ function runRhoScan() {
     ctx.lineTo(pad.l, H - pad.b);
     ctx.lineTo(W - pad.r, H - pad.b);
     ctx.stroke();
-    // 仅画各资产 q_k*(ρ)，不画 H
+    // 仅画各资产 q_k*(ρ)，不画 H；compareCopulas 时 t 走虚线
     const nAsset = data[0].qs.length;
     const qColors = ["#0f5c4c", "#8a3b12", "#1f6fb2", "#6b4c9a", "#b8860b", "#2e7d32", "#c2185b"];
-    for (let k = 0; k < nAsset; k++) {
-      ctx.strokeStyle = qColors[k % qColors.length];
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      data.forEach((d, i) => {
-        const px = x(d.rho), py = y(d.qs[k] * (yMax - yMin) * 0.85 + yMin);
-        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-      });
-      ctx.stroke();
+    const yScale = 0.85;
+    function plotQ(getQ, dashed) {
+      for (let k = 0; k < nAsset; k++) {
+        ctx.strokeStyle = qColors[k % qColors.length];
+        ctx.lineWidth = 2;
+        ctx.setLineDash(dashed ? [6, 4] : []);
+        ctx.beginPath();
+        data.forEach((d, i) => {
+          const px = x(d.rho), py = y(getQ(d, k) * (yMax - yMin) * yScale + yMin);
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
     }
+    const hasT = data.some((d) => d.qsT);
+    plotQ((d, k) => d.qs[k], false);
+    if (hasT) plotQ((d, k) => (d.qsT ? d.qsT[k] : d.qs[k]), true);
     ctx.fillStyle = "#6b6560";
     ctx.fillText("ρ=-1", pad.l, H - pad.b + 16);
     ctx.fillText("ρ=1", W - pad.r - 24, H - pad.b + 16);
     let lx = pad.l + 6;
     for (let k = 0; k < nAsset; k++) {
       ctx.fillStyle = qColors[k % qColors.length];
-      ctx.fillText(`q${k + 1}*(ρ)`, lx, pad.t + 12);
+      ctx.fillText(`q${k + 1}*(ρ)${hasT ? " 实=高斯" : ""}`, lx, pad.t + 12);
       lx += 72;
+    }
+    if (hasT) {
+      ctx.fillStyle = "#6b6560";
+      ctx.fillText("虚线 = t-copula ν=2", pad.l + 6, pad.t + 28);
     }
 
     let th = "<thead><tr><th>ρ</th><th>H*</th>";
     for (let k = 0; k < nAsset; k++) th += `<th>q${k + 1}*</th>`;
+    if (hasT) {
+      for (let k = 0; k < nAsset; k++) th += `<th>q${k + 1}* (t)</th>`;
+    }
     th += "<th>r_g</th></tr></thead><tbody>";
     const stride = Math.max(1, Math.ceil(data.length / 12));
     for (let i = 0; i < data.length; i += stride) {
       const d = data[i];
       th += `<tr><td>${fmt(d.rho, 2)}</td><td>${fmt(d.H, 4)}</td>`;
       d.qs.forEach((q) => (th += `<td>${fmt(q, 4)}</td>`));
+      if (hasT && d.qsT) d.qsT.forEach((q) => (th += `<td>${fmt(q, 4)}</td>`));
       th += `<td>${pct(d.rg)}</td></tr>`;
     }
     th += "</tbody>";
@@ -1866,7 +1895,7 @@ document.getElementById("s-copy-two").addEventListener("click", () => {
   document.getElementById("s-note").textContent =
     "已读取「两证券」输入。请点「开始扫描 ρ」计算。";
 });
-function loadMultiScan(useToeplitz) {
+function loadMultiScan(useToeplitz, compareCopulas) {
   const marg = margState.map((m) => ({
     name: m.name,
     states: m.states.map((s) => ({ p: s.p, r: s.r })),
@@ -1883,6 +1912,7 @@ function loadMultiScan(useToeplitz) {
     kind: "multi",
     marg,
     struct,
+    compareCopulas: !!compareCopulas,
     r0: num("n-r0") || 0,
     sh: document.getElementById("n-short").checked,
     lev: document.getElementById("n-lev").checked,
@@ -1893,13 +1923,15 @@ function loadMultiScan(useToeplitz) {
     nu: Math.max(2, num("n-nu") || 5),
     note: `多证券 ${marg.map((m) => m.name + "(" + m.states.length + "态)").join(" / ")}`
       + (useToeplitz ? " · 近强远弱结构" : " · 等权 ρ")
-      + (document.getElementById("n-copula").value === "t" ? " · t-copula" : " · 高斯"),
+      + (compareCopulas ? " · 对比高斯(实线) vs t-copula ν=2(虚线)"
+        : (document.getElementById("n-copula").value === "t" ? " · t-copula" : " · 高斯")),
   };
   document.getElementById("s-note").textContent =
     "已读取「多证券」输入（" + scanSource.note + "）。请点「开始扫描 ρ」计算。";
 }
-document.getElementById("s-copy-multi").addEventListener("click", () => loadMultiScan(false));
-document.getElementById("s-copy-multi-toeplitz").addEventListener("click", () => loadMultiScan(true));
+document.getElementById("s-copy-multi").addEventListener("click", () => loadMultiScan(false, false));
+document.getElementById("s-copy-multi-t").addEventListener("click", () => loadMultiScan(false, true));
+document.getElementById("s-copy-multi-toeplitz").addEventListener("click", () => loadMultiScan(true, false));
 
 /* init: 只准备输入区，不自动求解（点按钮才算） */
 initMulti(3);
