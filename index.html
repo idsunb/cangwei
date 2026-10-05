@@ -162,6 +162,13 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
       <div style="min-width:120px"><label>贷款利率 r₀′</label><input id="n-rl" type="number" value="0" step="0.01" /></div>
       <div style="min-width:120px"><label>借券费率 r_b</label><input id="n-rb" type="number" value="0" step="0.005" /></div>
       <div style="min-width:120px"><label>自有资金（元）</label><input id="n-cap" type="number" value="100000" step="1000" /></div>
+      <div style="min-width:140px">
+        <label>联合生成方式</label>
+        <select id="n-copula">
+          <option value="gauss">高斯 copula</option>
+          <option value="t">t-copula（尾部同跌）</option>
+        </select>
+      </div>
       <div style="min-width:110px">
         <label>t 自由度 ν</label>
         <input id="n-nu" type="number" value="5" step="1" min="2" max="50" />
@@ -194,11 +201,6 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
       <button class="ghost" id="n-rho-down" title="所有非对角 ρ 同时 −0.1">ρ −0.1</button>
       <button class="ghost" id="n-corr-toeplitz" title="ρ(i,j)=0.5^|i−j|，相邻 0.5、隔一位 0.25…">近强远弱（0.5^距离）</button>
       <button class="ghost" id="n-psd" title="非法相关矩阵会导致 Cholesky 失败；点击将其收缩为合法（半正定）相关矩阵">校正非法相关矩阵</button>
-    </div>
-    <div class="row" style="margin-top:-6px">
-      <button class="ghost copula-btn active" id="n-cop-gauss" title="正态缠绕：尾部较少一起极端">高斯 copula</button>
-      <button class="ghost copula-btn" id="n-cop-t" title="t 分布缠绕：暴跌时更容易一起跌（尾部相依）">t-copula（尾部同跌）</button>
-      <span class="sub" style="margin:0 0 0 8px">copula 只改「怎么缠」，不改矩阵里的 ρ 数字</span>
     </div>
 
     <div class="note" id="n-note"></div>
