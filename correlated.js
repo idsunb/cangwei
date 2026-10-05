@@ -1707,10 +1707,11 @@ document.getElementById("n-compare").addEventListener("click", runMultiCompare);
 function stepAllRho(delta) {
   const n = margState.length;
   for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      if (i === j) continue;
-      corrState[i][j] = Math.max(-0.99, Math.min(0.99, corrState[i][j] + delta));
-      corrState[j][i] = corrState[i][j];
+    for (let j = i + 1; j < n; j++) {
+      // 只改上三角再镜像，避免 (i,j)(j,i) 各加一次
+      const v = Math.max(-0.99, Math.min(0.99, corrState[i][j] + delta));
+      corrState[i][j] = v;
+      corrState[j][i] = v;
     }
   }
   corrState = projectCorrPSD(corrState, n);
