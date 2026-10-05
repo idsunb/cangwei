@@ -225,8 +225,11 @@ max H = Σ Pᵢ log₂(q₀R₀ + Σ qₖ Rᵢₖ)</div>
     <h2>ρ 扫描：相关如何影响最优仓位</h2>
     <p class="sub">固定两证券边际，扫描 ρ∈[−1,1]，观察 H*、qₐ*、qᵦ* 与分散效果。</p>
     <div class="row">
-      <button class="primary" id="s-run">扫描 ρ</button>
+      <button class="primary" id="s-run">开始扫描 ρ</button>
       <button class="ghost" id="s-copy-two">沿用「两证券」当前输入</button>
+      <button class="ghost" id="s-copy-multi">沿用「多证券」当前输入</button>
+      <button class="ghost" id="s-copy-multi-toeplitz">多证券 + 近强远弱结构</button>
+      <span class="sub" style="margin:0 0 0 8px">需手动点「开始扫描」；点来源按钮只会读取输入，不自动计算</span>
     </div>
     <canvas id="s-canvas" width="640" height="300"></canvas>
     <table id="s-table"></table>

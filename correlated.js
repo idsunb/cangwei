@@ -1136,16 +1136,16 @@ function runOne() {
 }
 
 document.getElementById("o-run").addEventListener("click", runOne);
+// 单证券输入不自动求解
 ["o-p1", "o-p2", "o-r1", "o-r2", "o-r0", "o-M", "o-cap", "o-rl", "o-rb"].forEach((id) => {
   const el = document.getElementById(id);
-  el.addEventListener("change", runOne);
-  el.addEventListener("input", runOne);
+  if (el) {
+    el.addEventListener("change", () => {});
+    el.addEventListener("input", () => {});
+  }
 });
-document.getElementById("o-lev").addEventListener("change", runOne);
-document.getElementById("o-short").addEventListener("change", runOne);
-["o-rl"].forEach((id) => {
-  document.getElementById(id).addEventListener("change", runOne);
-});
+document.getElementById("o-lev").addEventListener("change", () => {});
+document.getElementById("o-short").addEventListener("change", () => {});
 document.querySelectorAll("[data-one]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const e = {
@@ -1167,7 +1167,7 @@ document.querySelectorAll("[data-one]").forEach((btn) => {
     document.getElementById("o-short").checked = e.short;
     document.getElementById("o-M").value = e.M;
     if (e.rb != null) document.getElementById("o-rb").value = e.rb;
-    runOne();
+    // 预设只填输入，不自动求解
   });
 });
 
@@ -1638,125 +1638,144 @@ function runMultiCompare() {
   }
 }
 
-/* ---- ρ 扫描 ---- */
+/* ---- ρ 扫描（仅按钮触发；两证券 / 多证券） ---- */
+let scanSource = { kind: "two", note: "两证券（默认）" };
+
 function runRhoScan() {
-  const pA = num("t-pA"), pB = num("t-pB");
-  const rAL = num("t-rAL"), rAH = num("t-rAH");
-  const rBL = num("t-rBL"), rBH = num("t-rBH");
-  const r0 = num("t-r0") || 0;
-  const sh = document.getElementById("t-short").checked;
-  const lev = document.getElementById("t-lev").checked;
-  const M = num("t-M") || 1;
+  try {
+    const rl = num("t-rl");
+    const rb = num("t-rb");
+    const two = {
+      pA: num("t-pA"), pB: num("t-pB"),
+      rAL: num("t-rAL"), rAH: num("t-rAH"),
+      rBL: num("t-rBL"), rBH: num("t-rBH"),
+      r0: num("t-r0") || 0,
+      sh: document.getElementById("t-short").checked,
+      lev: document.getElementById("t-lev").checked,
+      M: num("t-M") || 1,
+    };
+    const rLoan = isFinite(rl) ? rl : two.r0;
+    const rBorrow = isFinite(rb) ? rb : 0;
 
-  const canvas = document.getElementById("s-canvas");
-  const ctx = canvas.getContext("2d");
-  const W = canvas.width, H = canvas.height;
-  const pad = { l: 48, r: 16, t: 18, b: 36 };
-  ctx.clearRect(0, 0, W, H);
+    const canvas = document.getElementById("s-canvas");
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    const pad = { l: 48, r: 16, t: 18, b: 36 };
+    ctx.clearRect(0, 0, W, H);
 
-  const rl = num("t-rl");
-  const rb = num("t-rb");
-  const rLoan = isFinite(rl) ? rl : r0;
-  const rBorrow = isFinite(rb) ? rb : 0;
+    const data = [];
+    const useMulti = scanSource.kind === "multi" && scanSource.marg;
+    const nStep = useMulti ? 15 : 40;
+    for (let i = 0; i <= nStep; i++) {
+      const rho = -1 + (2 * i) / nStep;
+      let res;
+      if (useMulti) {
+        const n = scanSource.marg.length;
+        const corr = scanSource.struct.map((row, a) =>
+          row.map((v, b) => (a === b ? 1 : Math.max(-0.99, Math.min(0.99, rho * v))))
+        );
+        const joint = scanSource.cop === "t"
+          ? jointFromTCopula(scanSource.marg, corr, scanSource.nu, 2500, 42 + i)
+          : jointFromCopula(scanSource.marg, corr, 2500, 42 + i);
+        res = solveCorrelated(joint, scanSource.r0, scanSource.sh, scanSource.lev, scanSource.M,
+          "grad", scanSource.rLoan, scanSource.rBorrow);
+      } else {
+        const rows = joint2x2(two.pA, two.pB, rho, two.rAL, two.rAH, two.rBL, two.rBH);
+        res = optimizeCorrelated(rows, two.r0, two.sh, two.lev, two.M, rLoan, rBorrow);
+      }
+      data.push({ rho, H: res.H, qs: res.weights.slice(), rg: res.rg });
+    }
+    const Hs = data.map((d) => d.H);
+    const yMin = Math.min(...Hs, 0), yMax = Math.max(...Hs, 0.05);
+    const x = (rho) => pad.l + ((rho + 1) / 2) * (W - pad.l - pad.r);
+    const y = (v) => pad.t + (1 - (v - yMin) / (yMax - yMin || 1)) * (H - pad.t - pad.b);
+    ctx.strokeStyle = "#e4ddd2";
+    ctx.beginPath();
+    ctx.moveTo(pad.l, pad.t);
+    ctx.lineTo(pad.l, H - pad.b);
+    ctx.lineTo(W - pad.r, H - pad.b);
+    ctx.stroke();
+    ctx.strokeStyle = "#0f5c4c";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((d, i) => {
+      const px = x(d.rho), py = y(d.H);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    ctx.strokeStyle = "#8a3b12";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    data.forEach((d, i) => {
+      const px = x(d.rho), py = y(d.qs[0] * (yMax - yMin) * 0.3 + yMin);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    ctx.fillStyle = "#6b6560";
+    ctx.fillText("ρ=-1", pad.l, H - pad.b + 16);
+    ctx.fillText("ρ=1", W - pad.r - 24, H - pad.b + 16);
+    ctx.fillStyle = "#0f5c4c";
+    ctx.fillText("H*(ρ)", pad.l + 4, pad.t + 12);
+    ctx.fillStyle = "#8a3b12";
+    ctx.fillText("q1*(ρ)（缩放）", pad.l + 4, pad.t + 26);
 
-  const data = [];
-  for (let i = 0; i <= 40; i++) {
-    const rho = -1 + (2 * i) / 40;
-    const rows = joint2x2(pA, pB, rho, rAL, rAH, rBL, rBH);
-    const res = optimizeCorrelated(rows, r0, sh, lev, M, rLoan, rBorrow);
-    data.push({ rho, H: res.H, qA: res.weights[0], qB: res.weights[1], rg: res.rg });
+    const nAsset = data[0].qs.length;
+    let th = "<thead><tr><th>ρ</th><th>H*</th>";
+    for (let k = 0; k < nAsset; k++) th += `<th>q${k + 1}*</th>`;
+    th += "<th>r_g</th></tr></thead><tbody>";
+    const stride = Math.max(1, Math.ceil(data.length / 12));
+    for (let i = 0; i < data.length; i += stride) {
+      const d = data[i];
+      th += `<tr><td>${fmt(d.rho, 2)}</td><td>${fmt(d.H, 4)}</td>`;
+      d.qs.forEach((q) => (th += `<td>${fmt(q, 4)}</td>`));
+      th += `<td>${pct(d.rg)}</td></tr>`;
+    }
+    th += "</tbody>";
+    document.getElementById("s-table").innerHTML = th;
+    const best = data.reduce((a, b) => (b.H > a.H ? b : a), data[0]);
+    const worst = data.reduce((a, b) => (b.H < a.H ? b : a), data[0]);
+    document.getElementById("s-note").textContent =
+      `${scanSource.note}。H* 在 ρ=${fmt(best.rho, 2)} 达到最大 ${fmt(best.H, 4)}；` +
+      `在 ρ=${fmt(worst.rho, 2)} 最小 ${fmt(worst.H, 4)}。一般：|ρ| 越低，分散越有效。`;
+  } catch (e) {
+    document.getElementById("s-note").textContent = "错误: " + e.message;
   }
-  const Hs = data.map((d) => d.H);
-  const yMin = Math.min(...Hs, 0), yMax = Math.max(...Hs, 0.05);
-  const x = (rho) => pad.l + ((rho + 1) / 2) * (W - pad.l - pad.r);
-  const y = (v) => pad.t + (1 - (v - yMin) / (yMax - yMin || 1)) * (H - pad.t - pad.b);
-  ctx.strokeStyle = "#e4ddd2";
-  ctx.beginPath();
-  ctx.moveTo(pad.l, pad.t);
-  ctx.lineTo(pad.l, H - pad.b);
-  ctx.lineTo(W - pad.r, H - pad.b);
-  ctx.stroke();
-  // H
-  ctx.strokeStyle = "#0f5c4c";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  data.forEach((d, i) => {
-    const px = x(d.rho), py = y(d.H);
-    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-  });
-  ctx.stroke();
-  // qA
-  ctx.strokeStyle = "#8a3b12";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  data.forEach((d, i) => {
-    const px = x(d.rho), py = y(d.qA * (yMax - yMin) * 0.3 + yMin);
-    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-  });
-  ctx.stroke();
-  ctx.fillStyle = "#6b6560";
-  ctx.fillText("ρ=-1", pad.l, H - pad.b + 16);
-  ctx.fillText("ρ=1", W - pad.r - 24, H - pad.b + 16);
-  ctx.fillStyle = "#0f5c4c";
-  ctx.fillText("H*(ρ)", pad.l + 4, pad.t + 12);
-  ctx.fillStyle = "#8a3b12";
-  ctx.fillText("qA*(ρ)（缩放）", pad.l + 4, pad.t + 26);
-
-  let th = "<thead><tr><th>ρ</th><th>H*</th><th>qA*</th><th>qB*</th><th>r_g</th></tr></thead><tbody>";
-  for (let i = 0; i < data.length; i += 4) {
-    const d = data[i];
-    th += `<tr><td>${fmt(d.rho, 2)}</td><td>${fmt(d.H, 4)}</td><td>${fmt(d.qA, 4)}</td><td>${fmt(d.qB, 4)}</td><td>${pct(d.rg)}</td></tr>`;
-  }
-  th += "</tbody>";
-  document.getElementById("s-table").innerHTML = th;
-  const best = data.reduce((a, b) => (b.H > a.H ? b : a), data[0]);
-  const worst = data.reduce((a, b) => (b.H < a.H ? b : a), data[0]);
-  document.getElementById("s-note").textContent =
-    `H* 在 ρ=${fmt(best.rho, 2)} 达到最大 ${fmt(best.H, 4)}；` +
-    `在 ρ=${fmt(worst.rho, 2)} 最小 ${fmt(worst.H, 4)}。` +
-    `一般：|ρ| 越低，分散越有效，H* 越高。`;
 }
 
-/* ---- tabs ---- */
+/* ---- tabs（切换不自动计算，节省资源） ---- */
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
     document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
     tab.classList.add("active");
     document.getElementById("panel-" + tab.getAttribute("data-tab")).classList.add("active");
-    if (tab.getAttribute("data-tab") === "rho") runRhoScan();
-    if (tab.getAttribute("data-tab") === "two") runTwo();
-    if (tab.getAttribute("data-tab") === "one") runOne();
-    if (tab.getAttribute("data-tab") === "multi") runMulti();
   });
 });
 
-document.getElementById("t-run").addEventListener("click", runTwo);
-["t-pA", "t-pB", "t-rAL", "t-rAH", "t-rBL", "t-rBH", "t-rho", "t-r0", "t-M", "t-rl", "t-rb", "t-cap"].forEach((id) => {
+/** 绑定输入框：只记录数值，不自动求解 */
+function bindLazy(id, fn) {
   const el = document.getElementById(id);
-  el.addEventListener("change", runTwo);
-  el.addEventListener("input", runTwo);
-});
-["t-lev", "t-short"].forEach((id) => {
-  document.getElementById(id).addEventListener("change", runTwo);
-});
+  if (!el) return;
+  el.addEventListener("change", fn || (() => {}));
+  el.addEventListener("input", fn || (() => {}));
+}
+
+document.getElementById("t-run").addEventListener("click", runTwo);
+["t-pA", "t-pB", "t-rAL", "t-rAH", "t-rBL", "t-rBH", "t-rho", "t-r0", "t-M", "t-rl", "t-rb", "t-cap"].forEach((id) => bindLazy(id));
+document.getElementById("t-lev").addEventListener("change", () => {});
+document.getElementById("t-short").addEventListener("change", () => {});
 document.querySelectorAll("[data-preset]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const p = btn.getAttribute("data-preset");
     document.getElementById("t-rho").value = p === "ind" ? "0" : p === "pos" ? "0.8" : "-0.8";
-    runTwo();
+    // 预设只改输入，不自动算
   });
 });
 
 document.getElementById("n-run").addEventListener("click", runMulti);
 document.getElementById("n-run-2").addEventListener("click", runMulti);
 document.getElementById("n-compare").addEventListener("click", runMultiCompare);
-["n-r0", "n-M", "n-rl", "n-rb", "n-cap", "n-nu"].forEach((id) => {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.addEventListener("change", runMulti);
-  el.addEventListener("input", runMulti);
-});
+["n-r0", "n-M", "n-rl", "n-rb", "n-cap", "n-nu"].forEach((id) => bindLazy(id));
 ["n-lev", "n-short", "n-method", "n-copula"].forEach((id) => {
   const el = document.getElementById(id);
   if (el) el.addEventListener("change", () => {
@@ -1764,7 +1783,7 @@ document.getElementById("n-compare").addEventListener("click", runMultiCompare);
       const wrap = document.getElementById("n-nu-wrap");
       if (wrap) wrap.style.display = el.value === "t" ? "block" : "none";
     }
-    runMulti();
+    // 不自动求解
   });
 });
 // 初始: 高斯时不显示 ν
@@ -1839,10 +1858,55 @@ document.getElementById("n-psd").addEventListener("click", () => {
 });
 
 document.getElementById("s-run").addEventListener("click", runRhoScan);
-document.getElementById("s-copy-two").addEventListener("click", runRhoScan);
+document.getElementById("s-copy-two").addEventListener("click", () => {
+  scanSource = {
+    kind: "two",
+    note: `两证券: A(p涨=${num("t-pA")}) B(p涨=${num("t-pB")})`,
+  };
+  document.getElementById("s-note").textContent =
+    "已读取「两证券」输入。请点「开始扫描 ρ」计算。";
+});
+function loadMultiScan(useToeplitz) {
+  const marg = margState.map((m) => ({
+    name: m.name,
+    states: m.states.map((s) => ({ p: s.p, r: s.r })),
+  }));
+  const n = marg.length;
+  const struct = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => {
+      if (i === j) return 1;
+      return useToeplitz ? Math.pow(0.5, Math.abs(i - j)) : 1;
+    })
+  );
+  const rl = num("n-rl"), rb = num("n-rb");
+  scanSource = {
+    kind: "multi",
+    marg,
+    struct,
+    r0: num("n-r0") || 0,
+    sh: document.getElementById("n-short").checked,
+    lev: document.getElementById("n-lev").checked,
+    M: num("n-M") || 1,
+    rLoan: isFinite(rl) ? rl : (num("n-r0") || 0),
+    rBorrow: isFinite(rb) ? rb : 0,
+    cop: document.getElementById("n-copula").value || "gauss",
+    nu: Math.max(2, num("n-nu") || 5),
+    note: `多证券 ${marg.map((m) => m.name + "(" + m.states.length + "态)").join(" / ")}`
+      + (useToeplitz ? " · 近强远弱结构" : " · 等权 ρ")
+      + (document.getElementById("n-copula").value === "t" ? " · t-copula" : " · 高斯"),
+  };
+  document.getElementById("s-note").textContent =
+    "已读取「多证券」输入（" + scanSource.note + "）。请点「开始扫描 ρ」计算。";
+}
+document.getElementById("s-copy-multi").addEventListener("click", () => loadMultiScan(false));
+document.getElementById("s-copy-multi-toeplitz").addEventListener("click", () => loadMultiScan(true));
 
-/* init */
+/* init: 只准备输入区，不自动求解（点按钮才算） */
 initMulti(3);
-runOne();
-runTwo();
-runMulti();
+renderMultiTables();
+document.getElementById("s-note").textContent =
+  "请选择来源（两证券 / 多证券），再点「开始扫描 ρ」。";
+["o-note", "t-note", "n-note"].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el && !el.textContent) el.textContent = "请填写参数后点击计算按钮。";
+});
