@@ -556,34 +556,90 @@ function solveCorrelated(rows, r0, allowShort, allowLev, maxMultiple = 1, method
     return { q, H: h };
   }
   function gradRefine(start) {
-    let q = project(start ? start.slice() : new Array(N).fill(0));
-    let best = q.slice();
-    let bestH = H_of(q);
-    let step = Math.max(0.5, hi - lo);
-    let nit = 0;
-    for (; nit < 400; nit++) {
-      const g = grad(q);
-      if (!g) break;
-      const gmax = Math.max(...g.map(Math.abs), 1e-15);
-      const dir = g.map((x) => x / gmax);
-      let improved = false;
-      for (const sc of [step, step * 0.5, step * 0.25, step * 0.125]) {
-        const cand = project(q.map((x, k) => x + sc * dir[k]));
-        const h = H_of(cand);
-        if (h > bestH + 1e-14) {
-          q = cand;
-          best = cand.slice();
-          bestH = h;
-          improved = true;
-          break;
+    // 多起点: 给定点 / 零点 / 单资产极点 / 等权 / 随机 — 避免停在同一假点
+    const starts = [
+      project(start ? start.slice() : new Array(N).fill(0)),
+      project(new Array(N).fill(0)),
+      project(new Array(N).fill(0).map(() => sumMax / N)),
+    ];
+    for (let k = 0; k < N; k++) {
+      const qk = new Array(N).fill(0);
+      qk[k] = hi;
+      starts.push(project(qk));
+    }
+    let s0 = 99;
+    const rnd = () => {
+      s0 = (1664525 * s0 + 1013904223) >>> 0;
+      return s0 / 4294967296;
+    };
+    for (let t = 0; t < 8; t++) {
+      const q = new Array(N).fill(0).map(() => lo + rnd() * (hi - lo));
+      let qs = q.reduce((a, b) => a + b, 0);
+      if (qs > 1e-12) {
+        const target = sumMax * (0.3 + 0.7 * rnd());
+        for (let i = 0; i < N; i++) q[i] *= target / qs;
+      }
+      starts.push(project(q));
+    }
+
+    let best = starts[0];
+    let bestH = H_of(best);
+    let bestNit = 0;
+    for (const st of starts) {
+      let q = project(st.slice());
+      let h = H_of(q);
+      let step = Math.max(0.5, hi - lo);
+      let nit = 0;
+      for (; nit < 200; nit++) {
+        const g = grad(q);
+        if (!g) break;
+        const gmax = Math.max(...g.map(Math.abs), 1e-15);
+        const dir = g.map((x) => x / gmax);
+        let improved = false;
+        for (const sc of [step, step * 0.5, step * 0.25, step * 0.125, step * 0.0625]) {
+          const cand = project(q.map((x, k) => x + sc * dir[k]));
+          const hh = H_of(cand);
+          if (hh > h + 1e-14) {
+            q = cand;
+            h = hh;
+            improved = true;
+            break;
+          }
+        }
+        if (!improved) {
+          step *= 0.5;
+          if (step < 1e-5) break;
         }
       }
-      if (!improved) {
-        step *= 0.5;
-        if (step < 1e-5) break;
+      // 沿边界微调 (Σq 贴约束时，比例才是关键)
+      for (let t = 0; t < 40; t++) {
+        let moved = false;
+        for (let a = 0; a < N; a++) {
+          for (let b = 0; b < N; b++) {
+            if (a === b) continue;
+            for (const d of [0.02, -0.02, 0.005, -0.005]) {
+              const cand = q.slice();
+              cand[a] += d;
+              cand[b] -= d;
+              const cq = project(cand);
+              const hh = H_of(cq);
+              if (hh > h + 1e-14) {
+                q = cq;
+                h = hh;
+                moved = true;
+              }
+            }
+          }
+        }
+        if (!moved) break;
+      }
+      if (h > bestH) {
+        bestH = h;
+        best = q.slice();
+        bestNit = nit;
       }
     }
-    return { q: best, H: bestH, nit };
+    return { q: best, H: bestH, nit: bestNit };
   }
   /** §3.8 单资产抛物线 → 初值 */
   function approxWarmstart(t = 0.5) {

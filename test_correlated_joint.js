@@ -237,5 +237,22 @@ if (typeof fillWeightCompareTable === "function") {
   check("fillWeightCompareTable 已导出", false);
 }
 
+// ρ=0.5 与 ρ=0 的 q* 应不同（曾在边界卡住导致相同）
+{
+  const margS = [
+    { name: "S1", states: [{ p: 0.5, r: -0.1 }, { p: 0.5, r: 0.3 }] },
+    { name: "S2", states: [{ p: 0.5, r: -0.15 }, { p: 0.5, r: 0.4 }] },
+  ];
+  const j0 = jointFromCopula(margS, [[1, 0], [0, 1]], 8000, 42);
+  const j5 = jointFromCopula(margS, [[1, 0.5], [0.5, 1]], 8000, 42);
+  const o0 = solveCorrelated(j0, 0, false, false, 1, "grad", 0, 0);
+  const o5 = solveCorrelated(j5, 0, false, false, 1, "grad", 0, 0);
+  const dq = Math.abs(o0.weights[0] - o5.weights[0]);
+  check("ρ=0 vs 0.5 的 q* 不同", dq > 0.01,
+    "q0=" + o0.weights[0].toFixed(4) + " q0.5=" + o5.weights[0].toFixed(4));
+  check("ρ=0.5 的 H 更低", o5.H < o0.H - 0.001,
+    "H0=" + o0.H.toFixed(4) + " H5=" + o5.H.toFixed(4));
+}
+
 console.log(fail ? `失败 ${fail} 项` : "全部通过");
 process.exit(fail ? 1 : 0);
