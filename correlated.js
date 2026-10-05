@@ -1395,7 +1395,7 @@ function loadExample2x3() {
   renderMultiTables();
 }
 
-/** 约束 Σp=1，并按 p 从大到小排序 */
+/** 约束 Σp=1，并按 p 从大到小排序（仅在用户要求时调用） */
 function normalizeAndSortStates(states) {
   let sum = 0;
   states.forEach((s) => {
@@ -1415,22 +1415,30 @@ function normalizeAndSortStates(states) {
   return states;
 }
 
+/** 仅排序，不改数值 */
+function sortStatesByP(states) {
+  states.sort((a, b) => (b.p - a.p) || (b.r - a.r));
+  return states;
+}
+
 function renderMultiTables() {
   const n = margState.length;
   const mb = document.getElementById("n-marg");
   let mh = "";
   margState.forEach((m, k) => {
     const sumP = m.states.reduce((a, b) => a + (parseFloat(b.p) || 0), 0);
+    const badSum = Math.abs(sumP - 1) > 1e-6;
     mh += `<div class="card" style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <strong>${m.name}（${m.states.length} 态，Σp=${fmt(sumP, 4)}${Math.abs(sumP - 1) > 1e-6 ? " → 已归一" : ""}）</strong>
+        <strong>${m.name}（${m.states.length} 态）Σp=<span style="${badSum ? "color:#8a3b12" : ""}">${fmt(sumP, 4)}</span>${badSum ? "　⚠ 请调到 1.0000，或点归一化" : ""}</strong>
         <span>
           <button class="ghost" data-madd="${k}">＋ 状态</button>
           ${m.states.length > 2 ? `<button class="ghost" data-mdelst="${k}">－ 状态</button>` : ""}
+          <button class="ghost" data-mnorm="${k}" title="所有 p 除以 Σp，并按大小排序">归一化</button>
         </span>
       </div>`;
     mh += `<div class="multi-row" style="font-size:12px;color:var(--muted)">
-      <div>状态</div><div>概率 p（Σ=1，大→小）</div><div>收益率 r</div><div></div></div>`;
+      <div>状态</div><div>概率 p</div><div>收益率 r</div><div></div></div>`;
     m.states.forEach((st, i) => {
       mh += `<div class="multi-row">
         <div>#${i + 1}</div>
@@ -1446,21 +1454,16 @@ function renderMultiTables() {
     inp.addEventListener("change", () => {
       const [k, i, key] = inp.getAttribute("data-mg").split(",");
       margState[+k].states[+i][key] = parseFloat(inp.value);
-      // p 约束: Σ=1 + 按大小排序
-      normalizeAndSortStates(margState[+k].states);
+      // 不强制改数: 只刷新 Σp 提示; 失焦后按 p 大小排序
+      if (key === "p") sortStatesByP(margState[+k].states);
       renderMultiTables();
-    });
-    inp.addEventListener("blur", () => {
-      // 失焦再归一一次，防止未触发 change
-      const [k] = inp.getAttribute("data-mg").split(",");
-      normalizeAndSortStates(margState[+k].states);
     });
   });
   mb.querySelectorAll("[data-madd]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const k = +btn.getAttribute("data-madd");
       margState[k].states.push({ p: 0, r: 0.1 });
-      normalizeAndSortStates(margState[k].states);
+      sortStatesByP(margState[k].states);
       renderMultiTables();
     });
   });
@@ -1468,6 +1471,12 @@ function renderMultiTables() {
     btn.addEventListener("click", () => {
       const k = +btn.getAttribute("data-mdelst");
       margState[k].states.pop();
+      renderMultiTables();
+    });
+  });
+  mb.querySelectorAll("[data-mnorm]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const k = +btn.getAttribute("data-mnorm");
       normalizeAndSortStates(margState[k].states);
       renderMultiTables();
     });
